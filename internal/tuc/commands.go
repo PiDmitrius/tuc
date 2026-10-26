@@ -232,9 +232,9 @@ if [ -z "$NAME" ] || [ -z "$PASS" ]; then echo "Укажите NAME — имя �
 fi`
 }
 
-// commands are the enroll, PFX import and revoke commands of the CA at url,
-// with EST at est and the root at root, with keys of a: of a PFX, of openssl
-// over EST and of CryptoPro for each OS.
+// commands are the enroll, PFX import and revoke commands of the CA at its
+// publication address url, with EST at est and the root at root, with keys
+// of a: of a PFX, of openssl over EST and of CryptoPro for each OS.
 func commands(url, est, root string, a algo) []osCommands {
 	type osDef struct {
 		id, title, tool string

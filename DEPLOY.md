@@ -6,14 +6,17 @@ enrollment links; `-publish` supplies AIA, CDP and OCSP. Preserve both addresses
 restart, update and restore. Changing configuration does not rewrite URLs in
 certificates already issued.
 
-The examples use `-base https://tuc.example` for pages, commands, EST,
-issuance and management, and `-publish http://tuc.example` for AIA caIssuers,
-CDP and OCSP addresses embedded in certificates. Without `-publish`, they use
-`-base`. Plain HTTP publication lets certificate retrieval and revocation checks
-run without first validating the proxy's TLS certificate; certificates, CRLs and
-OCSP responses carry their own signatures. TSP accepts requests on both addresses.
-The proxy serves only certificates, CRLs, OCSP and TSP over HTTP and redirects
-all other HTTP requests to HTTPS. Existing certificates retain their embedded
+The examples use `-base https://tuc.example` for pages, EST, issuance and
+management, and `-publish http://tuc.example` for AIA caIssuers, CDP and OCSP
+addresses embedded in certificates and for the commands on the page. Without
+`-publish`, they use `-base`. Plain HTTP publication lets certificate retrieval
+and revocation checks run without first validating the proxy's TLS certificate;
+certificates, CRLs and OCSP responses carry their own signatures. `cryptcp -ca`
+validates TLS only against the CryptoPro root store, which lacks common web
+roots, so its enrollment and the revocation commands use HTTP too; issue tokens
+in their URLs travel unencrypted. TSP accepts requests on both addresses.
+The proxy serves only certificates, CRLs, OCSP, TSP, `cryptcp` enrollment and
+revocation over HTTP and redirects all other HTTP requests to HTTPS. Existing certificates retain their embedded
 addresses when either setting changes. Use your permanent DNS
 name and provision a valid TLS certificate independently of the TUC instance
 being recovered. Distribute the TLS issuer's trust as required by your clients.
@@ -37,7 +40,10 @@ The closed HTTPS profile's outside allowlist is:
 | POST | `/<id>/ocsp` | OCSP requests |
 | GET | `/<id>/ocsp/<request>` | OCSP requests encoded in the URL |
 
-HTTP additionally exposes `POST /<id>/tsp` to all callers in both profiles.
+HTTP additionally exposes `POST /<id>/tsp` to all callers in both profiles, and
+`cryptcp` enrollment (`POST /<id>[/<issue>][/justcert]/certfnsh.asp`) and
+revocation (`POST /<id>[/<issue>]/revoke`) to all callers in the open profile
+and to trusted peers in the closed one.
 All other HTTP paths redirect to HTTPS, where the selected profile applies.
 
 Issued-certificate downloads and EST cacerts stay inside this default boundary;

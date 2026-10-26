@@ -163,6 +163,10 @@ elif mode == "publication":
         response = connection.getresponse()
         assert response.status == 308 and response.getheader("Location") == "https://" + host + path
         response.read(); connection.close()
+    # reach TUC: certfnsh.asp answers errors in its page, as the Microsoft CA
+    # does; revoke rejects an unsigned body, which the proxy never answers
+    for path, code in (("/" + ident + "/certfnsh.asp", 200), ("/" + ident + "/" + info["issue"] + "/justcert/certfnsh.asp", 200), ("/" + ident + "/" + info["issue"] + "/revoke", 403)):
+        request("POST", path, b"", expected=code, plain=True)
     for role in ("root", "inter"):
         path = "/" + info[role]["id"]
         assert request("GET", path + ".crt", plain=True) == request("GET", path + ".crt")
@@ -175,7 +179,7 @@ elif mode == "publication":
     reply = request("POST", "/" + ident + "/tsp", (state / "query.tsq").read_bytes(), {"Content-Type": "application/timestamp-query"}, plain=True)
     (state / "http.tsr").write_bytes(reply)
     openssl("ts", "-verify", "-in", str(state / "http.tsr"), "-queryfile", str(state / "query.tsq"), "-CAfile", str(state / "root.pem"), "-untrusted", str(state / "inter.pem"))
-    print("HTTP AIA/CRL/OCSP/TSP, certificate URLs and HTTPS redirects checked")
+    print("HTTP AIA/CRL/OCSP/TSP, CryptoPro enroll and revoke, certificate URLs and HTTPS redirects checked")
 elif mode == "public-id":
     print(json.loads((state / "state.json").read_text())["inter"]["id"])
 elif mode == "writer":
@@ -222,6 +226,8 @@ elif mode == "outside-closed":
     from urllib.parse import quote
     request("GET", "/" + ident + "/ocsp/" + quote(base64.b64encode(query).decode(), safe=""))
     request("GET", "/", expected=308, plain=True)
+    for path in ("/" + ident + "/certfnsh.asp", "/" + ident + "/revoke"):
+        request("POST", path, b"", expected=308, plain=True)
     for tail in (".crt", ".crl"):
         request("GET", "/" + ident + tail, plain=True)
     request("POST", "/" + ident + "/ocsp", query, plain=True)

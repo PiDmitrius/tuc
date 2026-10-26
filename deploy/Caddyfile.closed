@@ -37,11 +37,19 @@ http://{$TUC_HOST} {
   method POST
   path_regexp http_service ^/[0-9A-Fa-f]{40}/(ocsp|tsp)$
  }
+ @cryptopro {
+  method POST
+  path_regexp http_cryptopro ^/[0-9A-Fa-f]{40}(/[^/]+)?(/justcert)?/(certfnsh\.asp|revoke)$
+  remote_ip {$TUC_TRUSTED_CIDRS}
+ }
  route {
   handle @publication {
    reverse_proxy {$TUC_UPSTREAM}
   }
   handle @service {
+   reverse_proxy {$TUC_UPSTREAM}
+  }
+  handle @cryptopro {
    reverse_proxy {$TUC_UPSTREAM}
   }
   handle {

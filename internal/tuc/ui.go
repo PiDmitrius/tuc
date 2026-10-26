@@ -449,7 +449,7 @@ function refresh() {
   const auto = "TUC-" + stamp();
   if (pfx && !nameEdited) $("#pfx-name").value = tls && fqdnValid(fqdn) && fqdn.length + 1 + auto.length <= 64 ? fqdn + "-" + auto : auto;
   for (const s of $$("[data-fqdn]")) s.textContent = fqdn || "<FQDN>";
-  for (const s of $$("[data-tuc]")) s.textContent = enroll;
+  for (const s of $$("[data-tuc]")) s.textContent = ca.pub + enroll.slice(ca.url.length);
   for (const s of $$("[data-est]")) s.textContent = est();
   // Import of the PFX downloaded last
   const imp = value("imp"), impID = imp === "cryptopro" ? os : "openssl";
@@ -817,10 +817,10 @@ func (s *Service) caPage(w http.ResponseWriter, r *http.Request) {
 		"DN": nameParts(n.cert.RawSubject), "Issuer": nameString(n.cert.RawIssuer), "Serial": hexSerial(n.cert.SerialNumber),
 		"NotBefore": n.cert.NotBefore, "NotAfter": n.cert.NotAfter,
 		"URL": s.caURL(n.id), "Chain": chain, "Parent": parent, "Children": children, "CanChild": len(chain) < maxLevel, "ChildLevel": len(chain) + 1,
-		"Commands": commands(s.caURL(n.id), s.estURL(n.id), s.caURL(chain[0].ID), n.alg),
+		"Commands": commands(s.publicationURL(n.id), s.estURL(n.id), s.publicationURL(chain[0].ID), n.alg),
 		"Child": map[string]any{"Subject": testName(len(chain) + 1), "Closed": n.closed, "Child": true,
 			"Algos": algos, "Alg": n.alg},
-		"JSON": map[string]any{"id": n.id, "url": s.caURL(n.id), "est": s.estURL(n.id), "alg": n.alg, "issuance": n.iss, "gostChain": gostChain, "parent": parent, "closed": n.closed, "disabled": n.disabled,
+		"JSON": map[string]any{"id": n.id, "url": s.caURL(n.id), "pub": s.publicationURL(n.id), "est": s.estURL(n.id), "alg": n.alg, "issuance": n.iss, "gostChain": gostChain, "parent": parent, "closed": n.closed, "disabled": n.disabled,
 			"der": base64.StdEncoding.EncodeToString(n.der)},
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

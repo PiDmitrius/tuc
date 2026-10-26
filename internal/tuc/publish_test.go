@@ -82,7 +82,8 @@ func TestPublishURLs(t *testing.T) {
 			t.Error("page URL missing", want)
 		}
 	}
-	if strings.Contains(w.Body.String(), "http://publish.example") {
-		t.Error("publication URL replaced page commands")
+	// cryptcp -ca checks TLS only against the CryptoPro root store
+	if !strings.Contains(w.Body.String(), "<span data-tuc>http://publish.example/"+child+"</span>") || strings.Contains(w.Body.String(), "<span data-tuc>https://pages.example") {
+		t.Error("page commands do not use the publication URL")
 	}
 }
