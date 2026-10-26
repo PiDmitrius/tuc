@@ -47,8 +47,9 @@ With the CryptoPro CAdES Browser plug-in and either of its browser extensions
 (iifchhfnnmpdbibifmljnfjhpififfog or pfhgbfnnjiafkhfdkmpiflachepdcjod), the
 page issues a certificate into the user's CryptoPro store with a key of any
 algorithm a provider offers, user or TLS client, and lists the certificates of
-the store this CA issued with their revocation in TUC: it checks a signature and
-the certificate status on the computer, revokes a certificate by its signature
+the store this CA issued with their revocation in TUC: it tests a certificate by
+signing with its key and verifying the signature and the certificate on the
+computer, revokes a certificate by its signature
 and deletes a certificate with its key from the store. The page loads the extension's own API;
 no CryptoPro script is served by TUC.
 

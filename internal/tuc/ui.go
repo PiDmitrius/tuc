@@ -754,10 +754,10 @@ function plRow(x, open) {
   if (x.revoked) prop("Отозван", when(x.revoked));
   let checked;
   const r = plEl("div", null, "row"), st = plEl("span", null, "status");
-  const check = plEl("button", "Проверить"), rv = plEl("button", "Отозвать", "danger"), del = plEl("button", "Удалить", "danger");
+  const check = plEl("button", "Протестировать"), rv = plEl("button", "Отозвать", "danger"), del = plEl("button", "Удалить", "danger");
   r.append(check); if (!x.revoked && x.key) r.append(rv); r.append(del, st); body.append(r);
   check.onclick = async () => {
-    check.disabled = true; status(st, "Проверяем…");
+    check.disabled = true; status(st, "Подписываем и проверяем…");
     const out = [];
     try {
       if (x.key) {
