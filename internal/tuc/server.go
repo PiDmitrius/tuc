@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 )
@@ -30,8 +31,9 @@ import (
 //	                                         OCSP (RFC 6960) of what the CA issued, the request in
 //	                                         the body or URL-encoded base64 in the path
 //	GET  /{id}/cert/{sha1}.crt               a certificate the CA issued; also .cer or bare
-//	POST /{id}[/{issue}][/justcert]/certfnsh.asp
-//	                                         issue a leaf certificate to cryptcp -ca /{id}[/{issue}][/justcert]
+//	POST /{id}[/{issue}][/{option}...]/certfnsh.asp
+//	                                         issue a leaf certificate to cryptcp -ca /{id}[/{issue}][/{option}...],
+//	                                         options tls-server, tls-client and justcert in any order
 //	POST /{id}[/{issue}]/pfx                 {"name", "algo", "tls", "fqdn", "password"}: a key made by
 //	                                         the CA and a leaf certificate of it in a PKCS#12
 //	POST /{id}/tsp                           time-stamp (RFC 3161) by the time-stamping
@@ -39,8 +41,9 @@ import (
 //	POST /{id}[/{issue}]/revoke              revoke: the certificate that signed "revoke", a CMS
 //	                                         SignedData in the body, or {"token", "cert"}, or the CA
 //	                                         itself at its issuer, {"token", "self": true}
-//	GET  /.well-known/est/{id}/cacerts       EST (RFC 7030): the CA chain
-//	POST /.well-known/est/{id}/simpleenroll, /simplereenroll
+//	GET  /.well-known/est/{label}/cacerts    EST (RFC 7030): the CA chain; the label is the CA id
+//	                                         with +tls-server and +tls-client options
+//	POST /.well-known/est/{label}/simpleenroll, /simplereenroll
 //	                                         EST: issue a leaf certificate; a CA that issues by
 //	                                         link takes the issue token as the HTTP Basic password
 //	POST /{id}/admin                         {"token"}: admin details
@@ -64,13 +67,10 @@ func (s *Service) Handler() http.Handler {
 	m.HandleFunc("GET /{id}/cert/{cert}", s.issuedCert)
 	m.HandleFunc("POST /{id}/ocsp", s.ocsp)
 	m.HandleFunc("GET /{id}/ocsp/{req...}", s.ocsp)
-	m.HandleFunc("POST /{id}/certfnsh.asp", s.enroll)
-	m.HandleFunc("POST /{id}/justcert/certfnsh.asp", s.enroll)
-	m.HandleFunc("POST /{id}/{issue}/certfnsh.asp", s.enroll)
-	m.HandleFunc("POST /{id}/{issue}/justcert/certfnsh.asp", s.enroll)
-	m.HandleFunc("GET /.well-known/est/{id}/cacerts", s.estCACerts)
-	m.HandleFunc("POST /.well-known/est/{id}/simpleenroll", s.estEnroll)
-	m.HandleFunc("POST /.well-known/est/{id}/simplereenroll", s.estEnroll)
+	m.HandleFunc("POST /{id}/{path...}", s.enroll)
+	m.HandleFunc("GET /.well-known/est/{label}/cacerts", s.estCACerts)
+	m.HandleFunc("POST /.well-known/est/{label}/simpleenroll", s.estEnroll)
+	m.HandleFunc("POST /.well-known/est/{label}/simplereenroll", s.estEnroll)
 	m.HandleFunc("POST /{id}/pfx", s.pfx)
 	m.HandleFunc("POST /{id}/{issue}/pfx", s.pfx)
 	m.HandleFunc("POST /{id}/tsp", s.tsp)
@@ -143,7 +143,8 @@ type request struct {
 	Offset   int       `json:"offset"`
 	Issuance *issuance `json:"issuance"`
 	Name     string    `json:"name"`
-	TLS      bool      `json:"tls"`
+	Server   bool      `json:"tlsServer"`
+	Client   bool      `json:"tlsClient"`
 	FQDN     string    `json:"fqdn"`
 	Password string    `json:"password"`
 }
@@ -523,7 +524,7 @@ func (s *Service) pfx(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusForbidden, errors.New("this CA issues only with its issue token"))
 		return
 	}
-	p12, err := s.IssuePFX(n, req.Algo, strings.TrimSpace(req.Name), req.TLS, strings.TrimSpace(req.FQDN), req.Password)
+	p12, err := s.IssuePFX(n, req.Algo, strings.TrimSpace(req.Name), purpose{req.Server, req.Client}, strings.TrimSpace(req.FQDN), req.Password)
 	if err != nil {
 		fail(w, http.StatusBadRequest, err)
 		return
@@ -553,13 +554,30 @@ func (s *Service) tsp(w http.ResponseWriter, r *http.Request) {
 
 // enroll answers as the Microsoft CA web enrollment page of the CryptoPro test
 // CA that cryptcp -createcert -ca reads: a signed CMC response with the
-// certificate and its chain, or only the certificate at /justcert, in sPKCS7
-// lines of a script. A page without them is a rejection.
+// certificate and its chain, or only the certificate with justcert, in sPKCS7
+// lines of a script; tls-server and tls-client select the TLS template, which
+// cryptcp before 5.0.13820 cannot request by EKU. A page without them is a
+// rejection.
 func (s *Service) enroll(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	reject := func(err error) {
 		log.Printf("enroll: %v", err)
 		fmt.Fprintf(w, "<HTML><Body>%s</Body></HTML>\n", html.EscapeString(err.Error()))
+	}
+	opts := strings.Split(r.PathValue("path"), "/")
+	if opts[len(opts)-1] != "certfnsh.asp" {
+		http.NotFound(w, r)
+		return
+	}
+	opts = opts[:len(opts)-1]
+	issue := ""
+	if len(opts) > 0 && !slices.Contains([]string{"tls-server", "tls-client", "justcert"}, opts[0]) {
+		issue, opts = opts[0], opts[1:]
+	}
+	u, justcert, err := parseUsage(opts, true)
+	if err != nil {
+		reject(err)
+		return
 	}
 	n, err := s.open(r.PathValue("id"))
 	if err != nil {
@@ -571,7 +589,7 @@ func (s *Service) enroll(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, errDisabled.Error(), http.StatusServiceUnavailable)
 		return
 	}
-	if issue := r.PathValue("issue"); issue != "" {
+	if issue != "" {
 		if !s.checkToken(n.id, "issue", issue) {
 			reject(errors.New("not the issue token of this CA"))
 			return
@@ -581,12 +599,12 @@ func (s *Service) enroll(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	r.Body = http.MaxBytesReader(w, r.Body, 1<<16)
-	cert, err := s.Issue(n, r.PostFormValue("CertRequest"))
+	cert, err := s.Issue(n, r.PostFormValue("CertRequest"), u)
 	if err != nil {
 		reject(err)
 		return
 	}
-	resp, err := s.EnrollResponse(n, cert, !strings.HasSuffix(r.URL.Path, "/justcert/certfnsh.asp"))
+	resp, err := s.EnrollResponse(n, cert, !justcert)
 	if err != nil {
 		reject(err)
 		return

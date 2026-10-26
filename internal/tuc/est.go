@@ -53,8 +53,24 @@ func writeCerts(w http.ResponseWriter, certs [][]byte) {
 	io.WriteString(w, out.String())
 }
 
+// estLabel reads the EST label, the CA id followed by +tls-server and
+// +tls-client, into the id path value and the usage.
+func estLabel(w http.ResponseWriter, r *http.Request) (purpose, bool) {
+	parts := strings.Split(r.PathValue("label"), "+")
+	r.SetPathValue("id", parts[0])
+	u, _, err := parseUsage(parts[1:], false)
+	if err != nil {
+		fail(w, http.StatusBadRequest, err)
+		return u, false
+	}
+	return u, true
+}
+
 // estCACerts is the chain of the CA up to its root.
 func (s *Service) estCACerts(w http.ResponseWriter, r *http.Request) {
+	if _, ok := estLabel(w, r); !ok {
+		return
+	}
 	n := s.serving(w, r)
 	if n == nil {
 		return
@@ -70,6 +86,10 @@ func (s *Service) estCACerts(w http.ResponseWriter, r *http.Request) {
 // estEnroll issues for a PKCS#10 request in DER, PEM or base64. A CA that
 // issues by link takes its issue token as the HTTP Basic password.
 func (s *Service) estEnroll(w http.ResponseWriter, r *http.Request) {
+	u, ok := estLabel(w, r)
+	if !ok {
+		return
+	}
 	n := s.serving(w, r)
 	if n == nil {
 		return
@@ -85,7 +105,7 @@ func (s *Service) estEnroll(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, err)
 		return
 	}
-	cert, err := s.Issue(n, string(body))
+	cert, err := s.Issue(n, string(body), u)
 	if err != nil {
 		fail(w, http.StatusBadRequest, err)
 		return

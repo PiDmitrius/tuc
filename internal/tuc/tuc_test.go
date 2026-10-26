@@ -332,7 +332,7 @@ func testHierarchy(t *testing.T, e *env) {
 		t.Fatal("a closed CA issued without the issue token")
 	}
 	enroll := e.enrollURL(inter.ID, inter.Admin)
-	leaf, err := e.enroll(enroll, interDER)
+	leaf, err := e.enroll(enroll+"/tls-server/tls-client", interDER)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -528,7 +528,7 @@ func testPFX(t *testing.T, e *env) {
 		t.Helper()
 		return e.post(path, req)
 	}
-	code, p12 := post("/"+root.ID+"/pfx", map[string]any{"name": "pfx leaf", "algo": other, "tls": true, "fqdn": "pfx.example", "password": "pw"})
+	code, p12 := post("/"+root.ID+"/pfx", map[string]any{"name": "pfx leaf", "algo": other, "tlsServer": true, "tlsClient": true, "fqdn": "pfx.example", "password": "pw"})
 	if code != http.StatusOK {
 		t.Fatalf("pfx: %d %s", code, p12)
 	}
@@ -566,7 +566,7 @@ openssl x509 -in p.crt -pubkey -noout | openssl pkey -pubin -outform DER > crt.p
 	if _, err := os.Stat(filepath.Join(dir, "p.pem")); !os.IsNotExist(err) {
 		t.Fatal("the PFX revoke command left the key in p.pem")
 	}
-	for _, bad := range []map[string]any{{"name": "x"}, {"name": "", "password": "pw"}, {"name": "x", "password": "pw", "tls": true, "fqdn": "bad name"}} {
+	for _, bad := range []map[string]any{{"name": "x"}, {"name": "", "password": "pw"}, {"name": "x", "password": "pw", "tlsServer": true, "fqdn": "bad name"}} {
 		if code, _ := post("/"+root.ID+"/pfx", bad); code != http.StatusBadRequest {
 			t.Fatalf("%v: %d", bad, code)
 		}
@@ -653,7 +653,7 @@ func TestKeyUsage(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		der, err := e.svc.Issue(n, string(req))
+		der, err := e.svc.Issue(n, string(req), purpose{})
 		if err != nil {
 			t.Fatalf("%s %q: %v", c.alg, c.requested, err)
 		}
@@ -663,7 +663,7 @@ func TestKeyUsage(t *testing.T) {
 	}
 	req, _ := exec.Command("openssl", "req", "-new", "-newkey", "ec", "-pkeyopt", "ec_paramgen_curve:P-256", "-nodes",
 		"-keyout", filepath.Join(t.TempDir(), "k"), "-subj", "/CN=ku", "-addext", "keyUsage=keyEncipherment").Output()
-	if _, err := e.svc.Issue(n, string(req)); err != nil {
+	if _, err := e.svc.Issue(n, string(req), purpose{}); err != nil {
 		t.Fatalf("requested key usage must be ignored: %v", err)
 	}
 }
@@ -684,18 +684,18 @@ func TestKeyOnce(t *testing.T) {
 		return n
 	}
 	rn, on := open(root.ID), open(other.ID)
-	der, err := e.svc.Issue(rn, string(req))
+	der, err := e.svc.Issue(rn, string(req), purpose{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := e.svc.Issue(rn, string(req)); !errors.Is(err, errKeyReused) {
+	if _, err := e.svc.Issue(rn, string(req), purpose{}); !errors.Is(err, errKeyReused) {
 		t.Fatalf("a second certificate of a key: %v", err)
 	}
 	e.post("/"+root.ID+"/revoke", map[string]any{"token": root.Admin, "cert": certID(der)})
-	if _, err := e.svc.Issue(rn, string(req)); !errors.Is(err, errKeyReused) {
+	if _, err := e.svc.Issue(rn, string(req), purpose{}); !errors.Is(err, errKeyReused) {
 		t.Fatalf("a key of a revoked certificate: %v", err)
 	}
-	if _, err := e.svc.Issue(on, string(req)); err != nil {
+	if _, err := e.svc.Issue(on, string(req), purpose{}); err != nil {
 		t.Fatalf("the key at another CA: %v", err)
 	}
 
@@ -942,7 +942,7 @@ func TestPages(t *testing.T) {
 	inter := e.create("/"+root.ID+"/new", map[string]any{"token": root.Admin, "subject": "CN=Inter,O=<b>x</b>", "closed": true})
 	page := e.get(inter.URL + "/")
 	for _, want := range []string{"<title>Inter</title>", "Подчинённый УЦ", `href="/` + root.ID + `"`, "Выпуск по ссылке", inter.ID,
-		`<span data-tuc>` + inter.URL + `</span>`, `data-purpose="tls" data-response="cert"`, "&lt;b&gt;x&lt;/b&gt;"} {
+		`<span data-tuc>` + inter.URL + `</span>`, `data-purpose="both" data-response="cert"`, "&lt;b&gt;x&lt;/b&gt;"} {
 		if !bytes.Contains(page, []byte(want)) {
 			t.Fatalf("CA page lacks %q", want)
 		}
@@ -1053,7 +1053,7 @@ func testEST(t *testing.T, e *env) {
 	}
 
 	page := e.get(inter.URL)
-	enroll := pageCommand(t, page, `data-os="openssl" data-tool="openssl" data-purpose="plain" data-response="chain"`)
+	enroll := pageCommand(t, page, `data-os="openssl" data-tool="openssl" data-purpose="user" data-response="chain"`)
 	revoke := pageCommand(t, page, `data-os="openssl" data-tool="openssl" class="revoke off"`)
 	dir := t.TempDir()
 	run := func(script string) error {
@@ -1086,7 +1086,7 @@ func testEST(t *testing.T, e *env) {
 	if err := e.mp.VerifyChain(certs[0], [][]byte{rootDER}, [][]byte{interDER}, crls()); err != nil {
 		t.Fatal(err)
 	}
-	tls := pageCommand(t, page, `data-os="openssl" data-tool="openssl" data-purpose="tls" data-response="chain"`)
+	tls := pageCommand(t, page, `data-os="openssl" data-tool="openssl" data-purpose="both" data-response="chain"`)
 	if err := run(withToken(strings.Replace(tls, "<FQDN>", "srv.example", 1))); err != nil {
 		t.Fatalf("page EST command for TLS: %v", err)
 	}
@@ -1160,7 +1160,7 @@ func TestPageVerifyWithoutRevocationURLs(t *testing.T) {
 	root := e.create("/new", map[string]any{"subject": "CN=No revocation URLs"})
 	e.issuance(root, issuance{Days: 365})
 	page := e.get(root.URL)
-	enroll := pageCommand(t, page, `data-os="openssl" data-tool="openssl" data-purpose="plain" data-response="chain"`)
+	enroll := pageCommand(t, page, `data-os="openssl" data-tool="openssl" data-purpose="user" data-response="chain"`)
 	check := pageCommand(t, page, `data-os="openssl" data-tool="openssl" class="verify off"`)
 	cmd := exec.Command("sh", "-c", enroll+"\n"+check)
 	cmd.Dir = t.TempDir()

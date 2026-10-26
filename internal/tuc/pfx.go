@@ -3,6 +3,7 @@ package tuc
 import (
 	"encoding/asn1"
 	"errors"
+	"fmt"
 	"regexp"
 	"strings"
 	"unicode/utf8"
@@ -34,24 +35,63 @@ func validDNS(name string) bool {
 	return true
 }
 
-// tlsExtensions builds the TLS template from validated DNS names.
-func tlsExtensions(names []string) ([]cryptobyte.String, error) {
-	if len(names) == 0 {
-		return nil, errors.New("для TLS требуется DNS-имя в SAN")
+// purpose is the TLS use a leaf is issued for; none is the user template.
+type purpose struct{ server, client bool }
+
+func (u purpose) tls() bool { return u.server || u.client }
+
+// parseUsage reads the options of an enroll path or EST label: tls-server,
+// tls-client and, where justcert is allowed, justcert, each at most once.
+func parseUsage(opts []string, justcertAllowed bool) (u purpose, justcert bool, err error) {
+	seen := map[string]bool{}
+	for _, o := range opts {
+		if seen[o] {
+			return u, false, fmt.Errorf("повторная опция %q", o)
+		}
+		seen[o] = true
+		switch {
+		case o == "tls-server":
+			u.server = true
+		case o == "tls-client":
+			u.client = true
+		case o == "justcert" && justcertAllowed:
+			justcert = true
+		default:
+			return u, false, fmt.Errorf("неизвестная опция %q", o)
+		}
+	}
+	return u, justcert, nil
+}
+
+// tlsExtensions builds the TLS template of u from validated DNS names, which
+// a server requires.
+func tlsExtensions(names []string, u purpose) ([]cryptobyte.String, error) {
+	if u.server && len(names) == 0 {
+		return nil, errors.New("для TLS-сервера требуется DNS-имя")
 	}
 	for _, name := range names {
 		if !validDNS(name) {
 			return nil, errors.New("некорректное DNS-имя")
 		}
 	}
-	return []cryptobyte.String{ekuExt(false, oidServerAuth, oidClientAuth),
-		extension(oidSAN, false, func(b *cryptobyte.Builder) {
+	var ekus []asn1.ObjectIdentifier
+	if u.server {
+		ekus = append(ekus, oidServerAuth)
+	}
+	if u.client {
+		ekus = append(ekus, oidClientAuth)
+	}
+	exts := []cryptobyte.String{ekuExt(false, ekus...)}
+	if len(names) > 0 {
+		exts = append(exts, extension(oidSAN, false, func(b *cryptobyte.Builder) {
 			b.AddASN1(cbasn1.SEQUENCE, func(b *cryptobyte.Builder) {
 				for _, name := range names {
 					b.AddASN1(cbasn1.Tag(2).ContextSpecific(), func(b *cryptobyte.Builder) { b.AddBytes([]byte(strings.ToLower(name))) })
 				}
 			})
-		})}, nil
+		}))
+	}
+	return exts, nil
 }
 
 // extension is the DER of an extension of oid.
@@ -93,9 +133,9 @@ func nameCN(cn string) []byte {
 
 // IssuePFX makes a key of a, by default the algorithm of n, and a leaf
 // certificate of n for it named cn, with the key usages of its key and,
-// for TLS, the DNS name fqdn as a server and client, and returns them
+// for the TLS use u, the DNS name fqdn, and returns them
 // with the chain of n in a PKCS#12 under password.
-func (s *Service) IssuePFX(n *node, a algo, cn string, tls bool, fqdn, password string) ([]byte, error) {
+func (s *Service) IssuePFX(n *node, a algo, cn string, u purpose, fqdn, password string) ([]byte, error) {
 	if a == "" {
 		a = n.alg
 	}
@@ -109,9 +149,13 @@ func (s *Service) IssuePFX(n *node, a algo, cn string, tls bool, fqdn, password 
 		return nil, errors.New("пароль — от 1 до 128 байт")
 	}
 	var extra []cryptobyte.String
-	if tls {
+	if u.tls() {
+		var names []string
+		if fqdn != "" {
+			names = []string{fqdn}
+		}
 		var err error
-		extra, err = tlsExtensions([]string{fqdn})
+		extra, err = tlsExtensions(names, u)
 		if err != nil {
 			return nil, err
 		}

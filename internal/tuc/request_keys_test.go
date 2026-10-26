@@ -38,7 +38,7 @@ func TestUnsupportedRequestKeys(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if _, err := e.svc.Issue(n, string(request)); err == nil || !strings.Contains(err.Error(), "ключ CSR") {
+		if _, err := e.svc.Issue(n, string(request), purpose{}); err == nil || !strings.Contains(err.Error(), "ключ CSR") {
 			t.Fatalf("unsupported %T: %v", key, err)
 		}
 	}

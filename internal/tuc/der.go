@@ -560,9 +560,10 @@ func leafKeyUsage(spki []byte) cryptobyte.String {
 	return keyUsageExt(content)
 }
 
-// requestTemplate reads TLS and DNS hints; all extensions are built by the CA.
-func requestTemplate(attrs []cryptobyte.String) ([]cryptobyte.String, error) {
-	var eku, san []byte
+// requestTemplate is the template of u with the DNS names a request asks for;
+// the CA builds all extensions and ignores the others requested.
+func requestTemplate(attrs []cryptobyte.String, u purpose) ([]cryptobyte.String, error) {
+	var san []byte
 	seenRequest := false
 	for _, a := range attrs {
 		var oid asn1.ObjectIdentifier
@@ -583,7 +584,7 @@ func requestTemplate(attrs []cryptobyte.String) ([]cryptobyte.String, error) {
 			if !exts.ReadASN1(&body, cbasn1.SEQUENCE) || !body.ReadASN1ObjectIdentifier(&eoid) {
 				return nil, errors.New("bad requested extension")
 			}
-			if !eoid.Equal(oidSAN) && !eoid.Equal(oidEKU) {
+			if !eoid.Equal(oidSAN) {
 				continue
 			}
 			if len(body) > maxExtension {
@@ -593,30 +594,14 @@ func requestTemplate(attrs []cryptobyte.String) ([]cryptobyte.String, error) {
 			if (body.PeekASN1Tag(cbasn1.BOOLEAN) && !body.ReadASN1Boolean(&critical)) || !body.ReadASN1(&value, cbasn1.OCTET_STRING) || !body.Empty() {
 				return nil, errors.New("bad requested extension")
 			}
-			dst := &san
-			if eoid.Equal(oidEKU) {
-				dst = &eku
+			if san != nil {
+				return nil, errors.New("повторное SAN в CSR")
 			}
-			if *dst != nil {
-				return nil, errors.New("повторное SAN или EKU в CSR")
-			}
-			*dst = []byte(value)
+			san = []byte(value)
 		}
 	}
-	tls := false
-	if eku != nil {
-		in := cryptobyte.String(eku)
-		var seq cryptobyte.String
-		if !in.ReadASN1(&seq, cbasn1.SEQUENCE) || !in.Empty() || seq.Empty() {
-			return nil, errors.New("некорректный EKU в CSR")
-		}
-		for !seq.Empty() {
-			var oid asn1.ObjectIdentifier
-			if !seq.ReadASN1ObjectIdentifier(&oid) {
-				return nil, errors.New("некорректный EKU в CSR")
-			}
-			tls = tls || oid.Equal(oidServerAuth) || oid.Equal(oidClientAuth)
-		}
+	if !u.tls() {
+		return nil, nil
 	}
 	var names []string
 	if san != nil {
@@ -632,7 +617,7 @@ func requestTemplate(attrs []cryptobyte.String) ([]cryptobyte.String, error) {
 			if !seq.ReadAnyASN1(&value, &tag) {
 				return nil, errors.New("некорректный SAN в CSR")
 			}
-			if tag != cbasn1.Tag(2).ContextSpecific() || !tls {
+			if tag != cbasn1.Tag(2).ContextSpecific() {
 				continue
 			}
 			name := string(value)
@@ -646,10 +631,7 @@ func requestTemplate(attrs []cryptobyte.String) ([]cryptobyte.String, error) {
 			}
 		}
 	}
-	if !tls {
-		return nil, nil
-	}
-	return tlsExtensions(names)
+	return tlsExtensions(names, u)
 }
 
 var (
