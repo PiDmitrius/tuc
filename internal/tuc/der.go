@@ -305,6 +305,14 @@ func (a algo) Name() string { return algoDefs[a].name }
 
 func (a algo) Long() string { return algoDefs[a].long }
 
+// Key is the key alone, without the hash the CA signs with.
+func (a algo) Key() string {
+	if a.Family() == "gost" {
+		return a.Long()
+	}
+	return a.Name()
+}
+
 // Family is gost, rsa or ecdsa.
 func (a algo) Family() string { return strings.TrimRight(string(a), "0123456789") }
 

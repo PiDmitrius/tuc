@@ -98,7 +98,7 @@ ownership-validated.
 | `GET /<id>.crt`, `GET /<id>.crl` | CA certificate, CRL (published hourly and at once on a revocation, made when asked for with thisUpdate when it became due, valid for a week), as CA issuers and, when the CA issues with it, CRL distribution point of what the CA issues |
 | `POST /<id>/ocsp`, `GET /<id>/ocsp/<request>` | OCSP (RFC 6960) of what the CA issued, the OCSP URL of their AIA when the CA issues with it: good, revoked or, for anything else, unknown, with CertIDs of any hash OpenSSL has, GOST R 34.11-2012 included; signed by the OCSP responder of the CA, a certificate it issues at the first request for 90 days with OCSPSigning and id-pkix-ocsp-nocheck, thisUpdate now, valid for a week, nonce repeated; a signature on the request is ignored |
 | `GET /<id>/cert/<sha1>.crt` | a certificate the CA issued |
-| `GET /<id>/cert/<sha1>/status` | `{"revoked": <time> or null}` of a certificate the CA issued, not cached; 404 for any other |
+| `GET /<id>/cert/<sha1>/status` | a certificate the CA issued as the certificate list has it, JSON with its revocation time or null, not cached; 404 for any other |
 | `POST <enroll>[/tls-server][/tls-client][/justcert]/certfnsh.asp` | issues a leaf certificate, as `cryptcp -createcert -ca <enroll>[/tls-server][/tls-client][/justcert]` posts; the options in any order, each once |
 | `GET /.well-known/est/<label>/cacerts` | EST (RFC 7030): the CA and the CAs above it; the label is the CA id, optionally followed by `+tls-server` and `+tls-client` |
 | `POST /.well-known/est/<label>/simpleenroll`, `/simplereenroll` | EST: issues a leaf certificate of the template the label selects; a CA that issues by link takes its issue token as the HTTP Basic password |

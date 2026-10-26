@@ -31,7 +31,7 @@ import (
 //	                                         OCSP (RFC 6960) of what the CA issued, the request in
 //	                                         the body or URL-encoded base64 in the path
 //	GET  /{id}/cert/{sha1}.crt               a certificate the CA issued; also .cer or bare
-//	GET  /{id}/cert/{sha1}/status            {"revoked": time or null} of a certificate the CA issued
+//	GET  /{id}/cert/{sha1}/status            a certificate the CA issued as /list has it
 //	POST /{id}[/{issue}][/{option}...]/certfnsh.asp
 //	                                         issue a leaf certificate to cryptcp -ca /{id}[/{issue}][/{option}...],
 //	                                         options tls-server, tls-client and justcert in any order
@@ -445,20 +445,20 @@ func (s *Service) issuedCert(w http.ResponseWriter, r *http.Request) {
 	file(w, r, "application/pkix-cert", "cert-"+id+".crt", time.Time{}, der)
 }
 
-// certStatus is {"revoked": time or null} of a certificate the CA issued.
+// certStatus is a certificate the CA issued as its list has it, with the revocation.
 func (s *Service) certStatus(w http.ResponseWriter, r *http.Request) {
 	n := s.serving(w, r)
 	if n == nil {
 		return
 	}
 	n.Close()
-	at, err := s.st.revokedAt(n.id, strings.ToUpper(r.PathValue("cert")))
+	c, err := s.st.cert(n.id, strings.ToUpper(r.PathValue("cert")))
 	if err != nil {
 		fail(w, http.StatusNotFound, errors.New("no such certificate"))
 		return
 	}
 	w.Header().Set("Cache-Control", "no-store")
-	reply(w, map[string]*time.Time{"revoked": at})
+	reply(w, c)
 }
 
 func (s *Service) crl(w http.ResponseWriter, r *http.Request) {

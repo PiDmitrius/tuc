@@ -1191,23 +1191,24 @@ func TestCertStatus(t *testing.T) {
 	if resp.StatusCode != http.StatusOK || len(id) != 40 {
 		t.Fatalf("PFX: %d, certificate %q", resp.StatusCode, id)
 	}
-	status := func(cert string) (int, string) {
+	status := func(cert string) (int, certRow) {
 		r, err := http.Get(e.srv.URL + "/" + root.ID + "/cert/" + cert + "/status")
 		if err != nil {
 			t.Fatal(err)
 		}
 		defer r.Body.Close()
-		b, _ := io.ReadAll(r.Body)
-		return r.StatusCode, strings.TrimSpace(string(b))
+		var c certRow
+		json.NewDecoder(r.Body).Decode(&c)
+		return r.StatusCode, c
 	}
-	if code, got := status(id); code != http.StatusOK || got != `{"revoked":null}` {
-		t.Fatalf("status before revocation: %d %s", code, got)
+	if code, got := status(id); code != http.StatusOK || got.ID != id || got.Revoked != nil || got.Alg != "ECDSA P-256" || got.Algorithm != "ECDSA P-256" || got.CN != "status" || got.Issuer == "" || got.NotBefore.IsZero() {
+		t.Fatalf("status before revocation: %d %+v", code, got)
 	}
 	if code, b := e.post("/"+root.ID+"/revoke", map[string]any{"token": root.Admin, "cert": id}); code != http.StatusOK {
 		t.Fatalf("revoke: %d %s", code, b)
 	}
-	if code, got := status(strings.ToLower(id)); code != http.StatusOK || !strings.HasPrefix(got, `{"revoked":"`) {
-		t.Fatalf("status after revocation: %d %s", code, got)
+	if code, got := status(strings.ToLower(id)); code != http.StatusOK || got.Revoked == nil {
+		t.Fatalf("status after revocation: %d %+v", code, got)
 	}
 	if code, _ := status(strings.Repeat("0", 40)); code != http.StatusNotFound {
 		t.Fatalf("status of a certificate the CA did not issue: %d", code)

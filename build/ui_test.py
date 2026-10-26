@@ -68,7 +68,7 @@ with sync_playwright() as p:
     # The owner sees every row closed, a summary on each
     expect(page.locator(".item.open")).to_have_count(0)
     expect(page.locator("#issue-meta")).to_have_text("PFX")
-    expect(page.locator("#hier-row .meta")).to_have_text("уровень 1 · подчинённых УЦ: 0")
+    expect(page.locator("#hier-row > .head .meta")).to_have_text("уровень 1 · подчинённых УЦ: 0")
 
     # The enroll command follows the choices
     issue_card = page.locator("#issue")
@@ -284,7 +284,7 @@ with sync_playwright() as p:
     inter_url = page.url
     expect(page.locator(".position .kind")).to_have_text("Подчинённый УЦ · уровень 2")
     expect(page.get_by_role("link", name="Родительский УЦ", exact=True)).to_be_visible()
-    expect(page.locator("#hier-row .meta")).to_have_text("уровень 2 · подчинённых УЦ: 0")
+    expect(page.locator("#hier-row > .head .meta")).to_have_text("уровень 2 · подчинённых УЦ: 0")
     expect(page.locator("#hier li")).to_have_count(2)
     expect(page.locator("#hier li[aria-current=page]")).to_contain_text("Тестовый УЦ (уровень 2)")
     # Tokens are local to each CA; hierarchy navigation is public.

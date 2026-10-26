@@ -124,6 +124,8 @@ func (st *store) ca(id string) (*caRow, error) {
 
 type certRow struct {
 	ID, Serial, Subject string
+	CN, Issuer, Alg     string
+	Algorithm           string // the key, in full
 	NotBefore, NotAfter time.Time
 	Created             time.Time
 	Revoked             *time.Time
@@ -426,11 +428,27 @@ func (st *store) certDER(ca, id string) ([]byte, error) {
 func (st *store) certs(ca, q string, offset, limit int) ([]certRow, error) {
 	like := "%" + strings.ToLower(q) + "%"
 	hex := "%" + strings.NewReplacer(" ", "", ":", "").Replace(q) + "%"
+	return st.certRows(`WHERE c.ca = ? AND (c.search LIKE ? OR c.id LIKE ? OR c.serial LIKE ?)
+		ORDER BY c.created DESC, c.rowid DESC LIMIT ? OFFSET ?`, ca, like, hex, hex, limit, offset)
+}
+
+// cert is the row of the certificate id that ca issued.
+func (st *store) cert(ca, id string) (*certRow, error) {
+	rows, err := st.certRows(`WHERE c.ca = ? AND c.id = ?`, ca, id)
+	if err != nil {
+		return nil, err
+	}
+	if len(rows) == 0 {
+		return nil, errNotFound
+	}
+	return &rows[0], nil
+}
+
+func (st *store) certRows(where string, args ...any) ([]certRow, error) {
 	rows, err := st.db.Query(`
 		SELECT c.id, c.serial, c.subject, c.not_after, c.created, c.revoked, c.is_ca,
 			EXISTS (SELECT 1 FROM cas WHERE cas.id = c.id), c.der
-		FROM certs c WHERE c.ca = ? AND (c.search LIKE ? OR c.id LIKE ? OR c.serial LIKE ?)
-		ORDER BY c.created DESC, c.rowid DESC LIMIT ? OFFSET ?`, ca, like, hex, hex, limit, offset)
+		FROM certs c `+where, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -445,7 +463,8 @@ func (st *store) certs(ca, q string, offset, limit int) ([]certRow, error) {
 		}
 		r.NotAfter, r.Created = time.Unix(notAfter, 0).UTC(), time.Unix(created, 0).UTC()
 		if c, err := x509.ParseCertificate(r.DER); err == nil {
-			r.NotBefore = c.NotBefore.UTC()
+			a := algoOf(c)
+			r.NotBefore, r.CN, r.Issuer, r.Alg, r.Algorithm = c.NotBefore.UTC(), c.Subject.CommonName, nameString(c.RawIssuer), a.Name(), a.Key()
 		}
 		if revoked.Valid {
 			t := time.Unix(revoked.Int64, 0).UTC()
@@ -511,10 +530,12 @@ func (st *store) tokenGeneration(id, role string, rotate bool) (int64, error) {
 }
 
 type publicCA struct {
-	ID, CN  string
-	Level   int
-	Alg     algo
-	Created time.Time
+	ID, CN   string
+	Level    int
+	Alg      algo
+	Created  time.Time
+	NotAfter time.Time
+	State    certState
 }
 
 func (st *store) publicCAs() ([]publicCA, error) {
@@ -543,6 +564,7 @@ func (st *store) publicCAs() ([]publicCA, error) {
 			return nil, err
 		}
 		c.CN, c.Alg, c.Created = cert.Subject.CommonName, algoOf(cert), time.Unix(created, 0).UTC()
+		c.NotAfter, c.State = cert.NotAfter, stateOf(cert, false)
 		out = append(out, c)
 	}
 	return out, rows.Err()

@@ -74,7 +74,7 @@ a{color:var(--accent)}
 .hier h3{font-size:12px;font-weight:400;color:var(--text2);margin:6px 0 2px}
 .hier ol{list-style:none} .hier li{display:flex;gap:8px;align-items:baseline;padding:3px 0} .hier .cv{padding:1px 8px;font-size:12px}
 .hier .lvl{flex:none;width:2ch;text-align:right;color:var(--text2)} .hier .cn{min-width:0;overflow-wrap:anywhere}
-.hier .id{flex:none;margin-left:auto;color:var(--text2);font-size:11px}
+.hier .meta{margin-left:auto;color:var(--text2);font-size:11px} .hier .b,.hier .id{flex:none}
 .title{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
 .title h2{font-size:16px;color:var(--brand);flex-basis:100%}
 .title h2,main p,table.props td,.head .name{overflow-wrap:anywhere;min-width:0}
@@ -116,7 +116,7 @@ pre{background:var(--bg);border:1px solid var(--border);border-radius:6px;paddin
    open row with a rounded brand bar outside the box on its left, short of
    the row's top and bottom. The rows round the corners themselves, as the
    box lets the bar out. */
-#public-cas a.ca{display:flex;flex:1;align-items:center;gap:8px;min-width:0;text-decoration:none;color:inherit} #public-cas .id{color:var(--text2);font-size:12px} .rows{background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:16px} .rows:not(:has(>:not(.hidden))){display:none}
+#public-cas a.ca{display:flex;flex:1;align-items:center;gap:8px;min-width:0;text-decoration:none;color:inherit} .id{color:var(--text2);font-size:12px} .rows{background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:16px} .rows:not(:has(>:not(.hidden))){display:none}
 .item{position:relative} .head{border-radius:inherit}
 .row:not(:has(>:not(.hidden))){display:none}
 .rows>.item:not(.hidden):not(.item:not(.hidden)~.item){border-radius:7px 7px 0 0}
@@ -234,6 +234,30 @@ function cvLink(a, b64) {
   if (b64) a.href = certview(b64);
   return a;
 }
+const el = (tag, text, cls) => { const e = document.createElement(tag); if (text) e.textContent = text; if (cls) e.className = cls; return e; };
+// A certificate the CA issued as every list shows it, c a row of /list or of
+// /<id>/cert/<sha1>/status, badges added after its state
+function certItem(c, box, open, ...badges) {
+  const item = el("div", null, "item cert"), head = el("div", null, "head"), body = el("div", null, "body");
+  item.dataset.id = c.ID; item.append(head, body); box.append(item);
+  const name = el(c.CA && c.Live ? "a" : "span", c.CN || c.Subject, "name");
+  if (c.CA && c.Live) name.href = "/" + c.ID;
+  head.append(name);
+  if (c.CA) head.append(el("span", "Подчинённый УЦ", "b blue"));
+  if (c.Alg) head.append(el("span", c.Alg, "b blue"));
+  const expired = new Date(c.NotAfter) < new Date(), early = new Date(c.NotBefore) > new Date();
+  const state = el("span", c.Revoked ? "Отозван" : expired ? "Срок истёк" : early ? "Ещё не действует" : "Действует", "b " + (c.Revoked ? "red" : expired || early ? "grey" : "green"));
+  const act = el("span", null, "actions"), dl = el("a", "Скачать", "button");
+  dl.href = "/" + ca.id + "/cert/" + c.ID + ".crt";
+  act.append(cvLink(el("a", "CertView"), c.DER), dl);
+  head.append(state, ...badges, el("span", c.ID.slice(0, 8), "id"), el("span", "до " + when(c.NotAfter), "meta"), act);
+  const t = el("table", null, "props"); body.append(t);
+  const prop = (k, v, copy) => { const tr = t.insertRow(); tr.insertCell().textContent = k; const td = tr.insertCell(); td.textContent = v; if (copy) { td.className = "copy"; td.tabIndex = 0; copyCell(td, v); } return td; };
+  for (const [k, v, copy] of [["Владелец", c.Subject], ["Издатель", c.Issuer], ["Выдан", when(c.Created)], ["Серийный номер", c.Serial, true], ["SHA-1", c.ID, true],
+    ["Действует", when(c.NotBefore) + " — " + when(c.NotAfter)], ["Алгоритм ключа", c.Algorithm]].concat(c.Revoked ? [["Отозван", when(c.Revoked)]] : [])) prop(k, v, copy);
+  openable(item)(open);
+  return {item, body, state, prop};
+}
 const derB64 = buf => { let s = ""; for (const b of new Uint8Array(buf)) s += String.fromCharCode(b); return btoa(s); };
 document.addEventListener("click", async e => {
   const a = e.target.closest("a.cv[data-crt]");
@@ -254,7 +278,7 @@ for (const a of $$("a.cv")) cvLink(a);
 <div class="row"><button class="primary" type="submit">Создать УЦ</button><span class="status" role="status"></span></div>
 </form></div></div>
 {{if .CAs}}<div class="rows" id="public-cas">{{range .CAs}}
-<div class="item head"><a class="ca" href="/{{.ID}}"><span class="name">{{if eq .Level 1}}Корневой УЦ{{else}}Подчинённый УЦ · уровень {{.Level}}{{end}}</span><span class="b blue">{{.Alg.Name}}</span><span class="id">{{slice .ID 0 8}}</span><span class="meta">{{time .Created}}</span></a><a class="button cv" data-crt="/{{.ID}}.crt" href="/{{.ID}}.crt">CertView</a></div>
+<div class="item head"><a class="ca" href="/{{.ID}}"><span class="name">{{if eq .Level 1}}Корневой УЦ{{else}}Подчинённый УЦ · уровень {{.Level}}{{end}}</span><span class="b blue">{{.Alg.Name}}</span><span class="b {{.State.Color}}">{{.State.Label}}</span><span class="id">{{slice .ID 0 8}}</span><span class="meta">до {{time .NotAfter}}</span></a><a class="button cv" data-crt="/{{.ID}}.crt" href="/{{.ID}}.crt">CertView</a></div>
 {{end}}</div>{{else}}<p class="empty">Открытых УЦ пока нет</p>{{end}}
 </main>{{template "common"}}
 <script>openable($("#create-root")); caForm($("#root"), "/new", {});</script>
@@ -280,7 +304,7 @@ for (const a of $$("a.cv")) cvLink(a);
 <div class="title"><h2>{{.CN}}</h2>
 <span class="b blue">{{.Alg.Name}}</span>
 <span class="b mode {{if .Closed}}orange{{else}}green{{end}}" id="mode-pill"><span>{{if .Closed}}Выпуск по ссылке{{else}}Выпуск открыт{{end}}</span></span>
-{{if .Revoked}}<span class="b red">Отозван</span>{{end}}
+<span class="b {{.State.Color}}">{{.State.Label}}</span>
 <span class="b grey{{if not .Disabled}} hidden{{end}}" id="disabled-pill">Отключён</span>
 <span class="b solid hidden" id="pill-admin">Управление</span><span class="b blue hidden" id="pill-issue">Доступ по ссылке</span></div>
 <p class="facts">{{if .Revoked}}отозван {{time .Revoked}} · {{end}}до {{time .NotAfter}} · SHA-1 <span class="copy" tabindex="0">{{.ID}}</span></p>
@@ -312,9 +336,9 @@ for (const a of $$("a.cv")) cvLink(a);
 {{end}}{{end}}</div>
 <p class="note" id="enroll-note"></p>
 <div class="row"><button class="primary" id="copy-enroll">Скопировать команду</button><button class="primary hidden" id="get-pfx">Выпустить PFX</button><span class="status" id="enroll-status" role="status"></span></div>
-<div class="hidden" id="pfx-result"><label class="field"><span>PFX (base64)</span><textarea readonly rows="3" id="pfx-b64"></textarea></label>
+<div class="hidden" id="pfx-result"><div class="rows" id="pfx-cert"></div><label class="field"><span>PFX (base64)</span><textarea readonly rows="3" id="pfx-b64"></textarea></label>
 <label class="field"><span>Пароль PFX</span><input type="text" readonly id="pfx-pass-out"></label>
-<div class="row"><a class="button cv hidden" id="pfx-cv" target="_blank" rel="noopener noreferrer">CertView</a><button id="copy-b64">Скопировать base64</button><button id="copy-pass">Скопировать пароль</button><a class="button" id="pfx-file">Скачать файл</a></div>
+<div class="row"><button id="copy-b64">Скопировать base64</button><button id="copy-pass">Скопировать пароль</button><a class="button" id="pfx-file">Скачать файл</a></div>
 <p class="note">После перезагрузки страницы PFX и пароль исчезнут.</p></div>
 <div class="hidden" id="pfx-import"><p style="margin-top:12px" id="imp-title"></p>
 <div id="imp-fields"><label class="field"><span>PFX (base64)</span><textarea rows="3" id="imp-b64" autocomplete="off"></textarea></label>
@@ -370,21 +394,23 @@ for (const a of $$("a.cv")) cvLink(a);
 <div class="item" id="hier-row"><div class="head"><span class="name">Иерархия УЦ</span><span class="meta">уровень {{len .Chain}} · подчинённых УЦ: {{len .Children}}</span></div>
 <div class="body"><div class="hier" id="hier">
 <h3>Путь от корневого УЦ</h3>
-<ol>{{range .Chain}}<li{{if .Current}} aria-current="page"{{end}}><span class="lvl">{{.Level}}</span><span class="cn">{{if .Current}}<b>{{.CN}}</b>{{else}}<a href="/{{.ID}}">{{.CN}}</a>{{end}}{{if .Revoked}} <span class="b red">Отозван</span>{{end}}</span><span class="id">{{slice .ID 0 8}}</span><a class="button cv" data-crt="/{{.ID}}.crt" href="/{{.ID}}.crt">CertView</a></li>{{end}}</ol>
+<ol>{{range .Chain}}<li{{if .Current}} aria-current="page"{{end}}><span class="lvl">{{.Level}}</span><span class="cn">{{if .Current}}<b>{{.CN}}</b>{{else}}<a href="/{{.ID}}">{{.CN}}</a>{{end}}</span><span class="b blue">{{.Alg.Name}}</span><span class="b {{.State.Color}}" data-state>{{.State.Label}}</span><span class="id">{{slice .ID 0 8}}</span><span class="meta">до {{time .NotAfter}}</span><a class="button cv" data-crt="/{{.ID}}.crt" href="/{{.ID}}.crt">CertView</a></li>{{end}}</ol>
 {{with .Children}}<h3>Подчинённые УЦ</h3>
-<ol>{{range .}}<li><span class="lvl">{{.Level}}</span><span class="cn"><a class="child" href="/{{.ID}}">{{.CN}}</a>{{if .Revoked}} <span class="b red">Отозван</span>{{end}}</span><span class="id">{{slice .ID 0 8}}</span><a class="button cv" data-crt="/{{.ID}}.crt" href="/{{.ID}}.crt">CertView</a></li>{{end}}</ol>{{else}}<h3>{{if .CanChild}}Подчинённых УЦ нет{{else}}Последний уровень иерархии: подчинённые УЦ не создаются{{end}}</h3>{{end}}
+<ol>{{range .}}<li><span class="lvl">{{.Level}}</span><span class="cn"><a class="child" href="/{{.ID}}">{{.CN}}</a></span><span class="b blue">{{.Alg.Name}}</span><span class="b {{.State.Color}}" data-state>{{.State.Label}}</span><span class="id">{{slice .ID 0 8}}</span><span class="meta">до {{time .NotAfter}}</span><a class="button cv" data-crt="/{{.ID}}.crt" href="/{{.ID}}.crt">CertView</a></li>{{end}}</ol>{{else}}<h3>{{if .CanChild}}Подчинённых УЦ нет{{else}}Последний уровень иерархии: подчинённые УЦ не создаются{{end}}</h3>{{end}}
 </div></div></div>
 </div>
 
 <div class="rows">
-<div class="item" id="cert"><div class="head"><span class="name">Сертификат УЦ</span><span class="meta">до {{time .NotAfter}}</span></div>
+<div class="item" id="cert"><div class="head"><span class="name">Сертификат УЦ</span><span class="b blue">{{.Alg.Name}}</span><span class="b {{.State.Color}}">{{.State.Label}}</span><span class="id">{{slice .ID 0 8}}</span><span class="meta">до {{time .NotAfter}}</span></div>
 <div class="body">
 <table class="props">
 <tr><td>Владелец</td><td>{{range .DN}}<div><span class="dn-key">{{index . 0}}=</span><span class="dn-val">{{index . 1}}</span></div>{{end}}</td></tr>
 <tr><td>Издатель</td><td>{{.Issuer}}</td></tr>
 <tr><td>Серийный номер</td><td class="copy" tabindex="0">{{.Serial}}</td></tr>
+<tr><td>SHA-1</td><td class="copy" tabindex="0">{{.ID}}</td></tr>
 <tr><td>Действует</td><td>{{time .NotBefore}} — {{time .NotAfter}}</td></tr>
-<tr><td>Алгоритм</td><td>{{.Alg.Long}}</td></tr>
+<tr><td>Алгоритм ключа</td><td>{{.Alg.Key}}</td></tr>{{with .Revoked}}
+<tr><td>Отозван</td><td>{{time .}}</td></tr>{{end}}
 </table>
 <div class="row"><a class="button cv" id="cert-cv" target="_blank" rel="noopener noreferrer">CertView</a><a class="button" href="{{.URL}}.crt">Скачать .crt</a><button id="copy-pem">Скопировать PEM</button><a class="button" href="{{.URL}}.crl">CRL</a></div>
 </div></div>
@@ -610,10 +636,10 @@ $("#get-pfx").onclick = async e => {
     const encoded = btoa(bin);
     if (pfxURL) URL.revokeObjectURL(pfxURL);
     pfxURL = URL.createObjectURL(blob);
-    // the certificate of the PFX opens in CertView
-    const sha1 = r.headers.get("X-TUC-Certificate");
-    $("#pfx-cv").classList.toggle("hidden", !sha1);
-    if (sha1) cvLink($("#pfx-cv"), derB64(await (await fetch("/" + ca.id + "/cert/" + sha1 + ".crt")).arrayBuffer()));
+    // the certificate of the PFX as the issued list shows it
+    const sha1 = r.headers.get("X-TUC-Certificate"), got = sha1 && await fetch("/" + ca.id + "/cert/" + sha1 + "/status");
+    $("#pfx-cert").replaceChildren();
+    if (got && got.ok) certItem(await got.json(), $("#pfx-cert"), false);
     $("#pfx-file").href = pfxURL; $("#pfx-file").download = fileName(name) + ".pfx";
     $("#pfx-b64").value = encoded; $("#pfx-pass-out").value = pass;
     $("#imp-b64").value = encoded; $("#imp-pass").value = pass; pfxName = fileName(name);
@@ -710,9 +736,8 @@ function plRefreshIssue() {
   $("#pl-form").classList.toggle("hidden", !can);
   $("#pl-closed").classList.toggle("hidden", can);
 }
-// The certificates of this CA in the store, as the issued list shows them:
-// TUC tells which it issued and which it revoked
-const plEl = (tag, text, cls) => { const e = document.createElement(tag); if (text) e.textContent = text; if (cls) e.className = cls; return e; };
+// The certificates of this CA in the store, as the issued list shows them,
+// with whether the store has the key
 async function plList(select) {
   const st = $("#pl-status"), btn = $("#pl-refresh");
   btn.disabled = true; status(st, "Обновляем…");
@@ -721,40 +746,25 @@ async function plList(select) {
     await store.Open(2, "My", 2);
     const all = await store.Certificates, found = [];
     for (let i = 1, n = await all.Count; i <= n; i++) {
-      const c = await all.Item(i), sha1 = await c.Thumbprint;
-      const r = await fetch("/" + ca.id + "/cert/" + sha1 + "/status");
-      if (!r.ok) continue;
-      const {revoked} = await r.json();
-      found.push({c, sha1, revoked, cn: (await c.SubjectName).replace(/^.*?CN=("?)(.*?)\1(,.*)?$/, "$2"),
-        from: await c.ValidFromDate, till: await c.ValidToDate, key: await c.HasPrivateKey(), b64: (await c.Export(0)).replace(/\s+/g, "")});
+      const c = await all.Item(i), r = await fetch("/" + ca.id + "/cert/" + await c.Thumbprint + "/status");
+      if (r.ok) found.push({c, row: await r.json(), key: await c.HasPrivateKey()});
     }
     await store.Close();
     const open = new Set($$("#pl-certs .item.open").map(e => e.dataset.id));
     if (select) open.add(select);
-    found.sort((a, b) => new Date(b.from) - new Date(a.from));
+    found.sort((a, b) => new Date(b.row.Created) - new Date(a.row.Created));
     $("#pl-certs").replaceChildren();
-    for (const x of found) plRow(x, open.has(x.sha1));
+    for (const x of found) plRow(x, open.has(x.row.ID));
     status(st, found.length ? "" : "В хранилище нет сертификатов этого УЦ");
   } catch (e) { status(st, plError(e), "error"); }
   finally { btn.disabled = false; }
 }
 function plRow(x, open) {
-  const item = plEl("div", null, "item cert"), head = plEl("div", null, "head"), body = plEl("div", null, "body");
-  item.dataset.id = x.sha1; item.append(head, body); $("#pl-certs").append(item);
-  const now = new Date(), expired = new Date(x.till) < now, early = new Date(x.from) > now;
-  const state = plEl("span", x.revoked ? "Отозван" : expired ? "Срок истёк" : early ? "Ещё не действует" : "Действует", "b " + (x.revoked ? "red" : expired || early ? "grey" : "green"));
-  const act = plEl("span", null, "actions");
-  const dl = plEl("a", "Скачать", "button"); dl.href = "/" + ca.id + "/cert/" + x.sha1 + ".crt";
-  act.append(cvLink(plEl("a", "CertView"), x.b64), dl);
-  head.append(plEl("span", x.cn, "name"), state, plEl("span", "до " + when(new Date(x.till).toISOString().replace(/\.\d+Z$/, "Z")), "meta"), act);
-  const t = plEl("table", null, "props"); body.append(t);
-  const prop = (k, v, copy) => { const tr = t.insertRow(); tr.insertCell().textContent = k; const td = tr.insertCell(); td.textContent = v; if (copy) { td.className = "copy"; td.tabIndex = 0; copyCell(td, v); } return td; };
-  prop("SHA-1", x.sha1, true);
-  prop("Закрытый ключ", x.key ? "есть" : "нет");
-  if (x.revoked) prop("Отозван", when(x.revoked));
+  const {body, prop} = certItem(x.row, $("#pl-certs"), open, el("span", x.key ? "Ключ есть" : "Ключа нет", "b grey"));
+  x.sha1 = x.row.ID; x.revoked = x.row.Revoked;
   let checked;
-  const r = plEl("div", null, "row"), st = plEl("span", null, "status");
-  const check = plEl("button", "Протестировать"), rv = plEl("button", "Отозвать", "danger"), del = plEl("button", "Удалить", "danger");
+  const r = el("div", null, "row"), st = el("span", null, "status");
+  const check = el("button", "Протестировать"), rv = el("button", "Отозвать", "danger"), del = el("button", "Удалить", "danger");
   r.append(check); if (!x.revoked && x.key) r.append(rv); r.append(del, st); body.append(r);
   check.onclick = async () => {
     check.disabled = true; status(st, "Подписываем и проверяем…");
@@ -781,8 +791,8 @@ function plRow(x, open) {
   // a confirmation takes the place of the actions, as the issued list has it
   const confirm = (text, label, run) => {
     r.classList.add("hidden");
-    const conf = plEl("div", null, "row"), cst = plEl("span", null, "status"), go = plEl("button", label, "danger"), no = plEl("button", "Отмена");
-    conf.append(plEl("span", text), go, no, cst); body.append(conf);
+    const conf = el("div", null, "row"), cst = el("span", null, "status"), go = el("button", label, "danger"), no = el("button", "Отмена");
+    conf.append(el("span", text), go, no, cst); body.append(conf);
     no.onclick = () => { conf.remove(); r.classList.remove("hidden"); };
     go.onclick = async () => {
       go.disabled = true;
@@ -810,7 +820,6 @@ function plRow(x, open) {
     } finally { await store.Close(); }
     await plList();
   });
-  openable(item)(open);
 }
 async function plSign(x, text) {
   const signer = await plCreate("CAdESCOM.CPSigner");
@@ -1047,28 +1056,8 @@ if (token) {
     if (item) (focusables(item)[focus[1]] || item.querySelector(".head")).focus({preventScroll: true});
   }
   window.list = list;
-  function el(tag, text, cls) { const e = document.createElement(tag); if (text) e.textContent = text; if (cls) e.className = cls; return e; }
   function row(c, open) {
-    const item = el("div", null, "item cert"), head = el("div", null, "head"), body = el("div", null, "body");
-    item.dataset.id = c.ID; item.append(head, body); box.append(item);
-    const parts = c.Subject.split(", ");
-    const cn = (parts.find(p => p.startsWith("CN=")) || parts[0]).replace(/^CN=/, "");
-    const name = el(c.CA && c.Live ? "a" : "span", cn, "name");
-    if (c.CA && c.Live) name.href = "/" + c.ID;
-    head.append(name);
-    if (c.CA) head.append(el("span", "Подчинённый УЦ", "b blue"));
-    const expired = new Date(c.NotAfter) < new Date(), early = new Date(c.NotBefore) > new Date();
-    const state = el("span", c.Revoked ? "Отозван" : expired ? "Срок истёк" : early ? "Ещё не действует" : "Действует", "b " + (c.Revoked ? "red" : expired || early ? "grey" : "green"));
-    head.append(state, el("span", "до " + when(c.NotAfter), "meta"));
-    const act = el("span", null, "actions"); head.append(act);
-    act.append(cvLink(el("a", "CertView"), c.DER));
-    const dl = el("a", "Скачать", "button"); dl.href = self + "/cert/" + c.ID + ".crt"; act.append(dl);
-
-    const t = el("table", null, "props"); body.append(t);
-    for (const [k, v, copy] of [["Владелец", c.Subject], ["Выдан", when(c.Created)], ["Действует", when(c.NotBefore) + " — " + when(c.NotAfter)], ["Серийный номер", c.Serial, true], ["SHA-1", c.ID, true]].concat(c.Revoked ? [["Отозван", when(c.Revoked)]] : [])) {
-      const tr = t.insertRow(); tr.insertCell().textContent = k; const td = tr.insertCell(); td.textContent = v;
-      if (copy) { td.className = "copy"; td.tabIndex = 0; copyCell(td, v); }
-    }
+    const {body, state} = certItem(c, box, open);
     if (!c.Revoked) {
       const r = el("div", null, "row"), rv = el("button", "Отозвать", "danger"); r.append(rv); body.append(r);
       rv.onclick = () => {
@@ -1082,11 +1071,10 @@ if (token) {
           catch (x) { status(st, "Не удалось отозвать: " + x.message, "error"); go.disabled = false; return; }
           state.textContent = "Отозван"; state.className = "b red"; conf.remove(); r.remove();
           const h = $$("#hier a.child").find(a => new URL(a.href).pathname === "/" + c.ID);
-          if (h && !h.parentElement.querySelector(".b.red")) h.after(" ", el("span", "Отозван", "b red"));
+          if (h) Object.assign(h.closest("li").querySelector("[data-state]"), {textContent: "Отозван", className: "b red"});
         };
       };
     }
-    openable(item)(open);
   }
   $("#find").onclick = () => { q = $("#q").value.trim(); list(); };
   $("#q").addEventListener("keydown", e => { if (e.key === "Enter") { q = $("#q").value.trim(); list(); } });
@@ -1114,9 +1102,27 @@ func (s *Service) indexPage(w http.ResponseWriter, r *http.Request) {
 }
 
 type chainNode struct {
-	ID, CN                 string
-	Level                  int // 1 for a root
-	Root, Current, Revoked bool
+	ID, CN        string
+	Level         int // 1 for a root
+	Root, Current bool
+	Alg           algo
+	NotAfter      time.Time
+	State         certState
+}
+
+// certState is the badge of a certificate: its revocation, then its validity period.
+type certState struct{ Label, Color string }
+
+func stateOf(c *x509.Certificate, revoked bool) certState {
+	switch now := time.Now(); {
+	case revoked:
+		return certState{"Отозван", "red"}
+	case now.After(c.NotAfter):
+		return certState{"Срок истёк", "grey"}
+	case now.Before(c.NotBefore):
+		return certState{"Ещё не действует", "grey"}
+	}
+	return certState{"Действует", "green"}
 }
 
 func (s *Service) caPage(w http.ResponseWriter, r *http.Request) {
@@ -1132,11 +1138,12 @@ func (s *Service) caPage(w http.ResponseWriter, r *http.Request) {
 	var chain []chainNode
 	for c := n; c != nil; c = c.parent {
 		gostChain = gostChain || c.alg.Family() == "gost"
-		node := chainNode{ID: c.id, CN: c.cert.Subject.CommonName, Root: c.parent == nil, Current: c == n}
+		var at *time.Time
 		if c.parent != nil {
-			at, _ := s.st.revokedAt(c.parent.id, c.id)
-			node.Revoked = at != nil
+			at, _ = s.st.revokedAt(c.parent.id, c.id)
 		}
+		node := chainNode{ID: c.id, CN: c.cert.Subject.CommonName, Root: c.parent == nil, Current: c == n,
+			Alg: c.alg, NotAfter: c.cert.NotAfter, State: stateOf(c.cert, at != nil)}
 		chain = append([]chainNode{node}, chain...)
 	}
 	for i := range chain {
@@ -1154,14 +1161,15 @@ func (s *Service) caPage(w http.ResponseWriter, r *http.Request) {
 	}
 	var children []chainNode
 	for _, c := range rows {
-		cn := c.id
-		if x, err := x509.ParseCertificate(c.cert); err == nil {
-			cn = x.Subject.CommonName
+		x, err := x509.ParseCertificate(c.cert)
+		if err != nil {
+			continue
 		}
-		children = append(children, chainNode{ID: c.id, CN: cn, Level: len(chain) + 1, Revoked: c.revoked})
+		children = append(children, chainNode{ID: c.id, CN: x.Subject.CommonName, Level: len(chain) + 1,
+			Alg: algoOf(x), NotAfter: x.NotAfter, State: stateOf(x, c.revoked)})
 	}
 	data := map[string]any{
-		"Revoked": revoked, "Alg": n.alg, "Algos": algos,
+		"Revoked": revoked, "State": stateOf(n.cert, revoked != nil), "Alg": n.alg, "Algos": algos,
 		"ID": n.id, "CN": n.cert.Subject.CommonName, "Root": n.parent == nil, "Closed": n.closed, "Disabled": n.disabled,
 		"DN": nameParts(n.cert.RawSubject), "Issuer": nameString(n.cert.RawIssuer), "Serial": hexSerial(n.cert.SerialNumber),
 		"NotBefore": n.cert.NotBefore, "NotAfter": n.cert.NotAfter,
