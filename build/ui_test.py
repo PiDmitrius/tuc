@@ -548,7 +548,11 @@ with sync_playwright() as p:
     probe.locator('input[name=imp][value=openssl]').locator('..').click()
     expect(probe.locator("#import-note")).to_contain_text("Нужен OpenSSL с gost-engine")
     expect(probe.locator("#management-rows")).to_be_hidden()
-    assert probe.locator("#public-rows > .item").evaluate_all("rows => rows.map(r => r.id)") == ["issue", "verify", "revoke", "cert", "hier-row"]
+    assert probe.locator("#public-rows > .item").evaluate_all("rows => rows.map(r => r.id)") == ["issue", "plugin", "verify", "revoke", "cert", "hier-row"]
+    # Without the CryptoPro extension the plug-in block says so and stays usable
+    probe.locator("#plugin > .head").click()
+    expect(probe.locator("#pl-state")).to_have_text("Расширение КриптоПро не найдено")
+    expect(probe.locator("#pl-ready")).to_be_hidden()
     probe.goto(base + "/" + child["id"] + "#token=" + child["admin"])
     expect(probe.locator("#management-rows")).to_be_visible()
     assert probe.locator("#management-rows > .item").evaluate_all("rows => rows.map(r => r.id)") == ["issued", "child-row", "access", "settings"]

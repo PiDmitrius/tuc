@@ -43,6 +43,14 @@ import a PFX from its base64, check a certificate's chain and revocation, and
 revoke it; `/<id>#issue=<issue token>`, the issue link, opens it
 for a CA that issues by link.
 
+With the CryptoPro CAdES Browser plug-in and either of its browser extensions
+(iifchhfnnmpdbibifmljnfjhpififfog or pfhgbfnnjiafkhfdkmpiflachepdcjod), the
+page issues a certificate into the user's CryptoPro store with a key of any
+algorithm a provider offers, user or TLS client, and lists the certificates of
+the store this CA issued: it checks a signature and the certificate status and
+revokes a certificate by its signature. The page loads the extension's own API;
+no CryptoPro script is served by TUC.
+
 The Access section can replace either link independently. Replacement increments
 that role's generation in SQLite and invalidates the previous token immediately.
 Save the new admin link when prompted. Replacing an issue link does not close

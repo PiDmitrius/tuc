@@ -95,12 +95,17 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,.c
 .head:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 label.field{display:block;margin:8px 0} label.field span{display:block;color:var(--text2);margin-bottom:2px}
 .row label.field{flex:1 1 200px;margin:0}
-input[type=text],input[type=number],select,textarea{width:100%;font:inherit;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)}
+input[type=text],input[type=password],input[type=number],select,textarea{width:100%;font:inherit;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)}
 .seg{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;max-width:100%}
 .seg label{padding:3px 10px;cursor:pointer;border-left:1px solid var(--border);white-space:nowrap}
 .seg label:first-child{border-left:none}
 .seg input{position:absolute;opacity:0;pointer-events:none}
 .seg label:has(input:checked){background:var(--tint);color:var(--brand);font-weight:600}
+.pick{margin-top:6px;border:1px solid var(--border);border-radius:6px;overflow:hidden}
+.pick button{display:flex;gap:8px;justify-content:space-between;width:100%;border:0;border-top:1px solid var(--border);border-radius:0;background:var(--surface);padding:6px 10px;text-align:left;font-weight:400}
+.pick button:first-child{border-top:0}
+.pick button[aria-selected=true]{background:var(--tint);color:var(--brand);font-weight:600}
+.pick .id{color:var(--text2)}
 .seg label:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:-2px}
 .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 pre{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;white-space:pre-wrap;word-break:break-all;margin-top:10px}
@@ -308,6 +313,24 @@ const when = s => s ? s.replace("T", " ").replace(/Z$/, " UTC").replace(/^(\d+)-
 </div>
 <p class="hidden" id="closed-note">Для выпуска получите ссылку у владельца УЦ. Отозвать свой сертификат можно ниже без ссылки.</p>
 </div></div>
+<div class="item" id="plugin"><div class="head"><span class="name">КриптоПро в браузере</span><span class="meta" id="pl-meta"></span></div>
+<div class="body">
+<p class="note hidden" id="pl-http">HTTP: код страницы может быть подменён.</p>
+<p class="status hidden" id="pl-state" role="status"></p>
+<div class="hidden" id="pl-ready">
+<div id="pl-form"><div class="row"><label class="field"><span>Имя сертификата (CN)</span><input type="text" id="pl-name" autocomplete="off"></label><label class="field"><span>Алгоритм ключа</span><select id="pl-algo">{{range .Algos}}<option value="{{.}}">{{.Long}}</option>{{end}}</select></label><label class="field"><span>PIN-код контейнера</span><input type="password" id="pl-pin" placeholder="без PIN-кода" autocomplete="new-password"></label></div>
+<div class="controls" style="margin-top:8px"><span class="seg" role="group" aria-label="Назначение"><label><input type="checkbox" id="pl-client"> TLS-клиент</label></span></div>
+<div class="row"><button class="primary" id="pl-issue">Выпустить и установить</button><span class="status" id="pl-issue-status" role="status"></span></div></div>
+<p class="hidden" id="pl-closed">Для выпуска нужна ссылка выпуска.</p>
+<div class="hidden" id="pl-root"><p style="margin-top:12px">Корень УЦ не в доверенных: подпись и проверка не пройдут. Установите его:</p>
+<pre id="pl-root-cmd"></pre><div class="row"><button id="pl-root-copy">Скопировать команду</button></div></div>
+<div class="row" style="margin-top:14px"><span>Сертификаты этого УЦ</span><button id="pl-refresh">Обновить</button></div>
+<div class="pick hidden" id="pl-certs" role="listbox" aria-label="Сертификаты этого УЦ"></div>
+<p class="note" id="pl-info"></p>
+<div class="row"><button id="pl-check">Проверить</button><button id="pl-revoke">Отозвать</button><span class="status" id="pl-status" role="status"></span></div>
+<div class="hidden" id="pl-confirm"><p>Отзыв необратим: <span id="pl-confirm-cert"></span></p>
+<div class="row"><button id="pl-cancel">Отмена</button><button class="danger" id="pl-revoke-yes">Отозвать сертификат</button></div></div>
+</div></div></div>
 <div class="item" id="verify"><div class="head"><span class="name">Проверить сертификат</span></div>
 <div class="body">
 <div class="controls"><span class="seg" role="radiogroup" aria-label="Где сертификат"><label><input type="radio" name="where" value="openssl"> В файлах OpenSSL</label><label><input type="radio" name="where" value="cryptopro"> В КриптоПро</label></span><span class="seg" role="radiogroup" aria-label="Операционная система" id="os4-seg">{{range .Commands}}{{if eq .Tool "cryptopro"}}<label><input type="radio" name="os4" value="{{.ID}}"> {{.Title}}</label>{{end}}{{end}}</span></div>
@@ -402,7 +425,7 @@ const ca = JSON.parse($("#data").textContent);
 const self = "/" + ca.id;
 let token = frag.get("token") || "";
 const issue = frag.get("issue") || "";
-for (const id of ["issue", "verify", "revoke", "cert", "hier-row"]) $("#public-rows").append($("#" + id));
+for (const id of ["issue", "plugin", "verify", "revoke", "cert", "hier-row"]) $("#public-rows").append($("#" + id));
 for (const id of ["issued", "child-row", "access", "settings"]) { const row = $("#" + id); if (row) $("#management-rows").append(row); }
 let issuance = ca.issuance;
 function showTerm() { $("#issue-term").textContent = "срок " + new Intl.NumberFormat("ru", {style: "unit", unit: "day", unitDisplay: "long"}).format(issuance.days) + (issuance.from ? ", начало " + (issuance.from > 0 ? "+" : "") + issuance.from + " дн. от выпуска" : ""); }
@@ -606,10 +629,225 @@ $("#copy-import").onclick = e => {
 $("#copy-verify").onclick = e => copyText(shown("pre.verify").textContent, e.target, "Скопировать команду проверки");
 $("#copy-revoke").onclick = e => { if (value("tool2") !== "pfx" || needPFX($("#rev-b64"), e.target, "Скопировать команду отзыва")) copyText(shown("pre.revoke").textContent, e.target, "Скопировать команду отзыва"); };
 
+// CryptoPro browser plug-in: the page loads the plug-in API of either
+// extension, MV3 first, and asks the native host for its objects
+const plExtensions = ["pfhgbfnnjiafkhfdkmpiflachepdcjod", "iifchhfnnmpdbibifmljnfjhpififfog"];
+// provider type and key length, ECDSA doubled as CryptoPro takes it, and the request hash
+const plAlgos = {gost256: [80, 0, ""], gost512: [81, 0, ""], rsa2048: [24, 2048, "2.16.840.1.101.3.4.2.1"], rsa3072: [24, 3072, "2.16.840.1.101.3.4.2.1"],
+  rsa4096: [24, 4096, "2.16.840.1.101.3.4.2.1"], ecdsa256: [16, 512, "2.16.840.1.101.3.4.2.1"], ecdsa384: [16, 768, "2.16.840.1.101.3.4.2.2"], ecdsa521: [16, 1056, "2.16.840.1.101.3.4.2.3"]};
+let plConnect, plObject, plCerts = [], plChosen;
+const plError = e => (e && (e.message || e.value)) || String(e);
+const plCreate = name => plObject.CreateObjectAsync(name);
+function plLoad(id) {
+  return new Promise(resolve => {
+    const s = document.createElement("script");
+    s.src = "chrome-extension://" + id + "/nmcades_plugin_api.js";
+    s.onload = () => resolve(true); s.onerror = () => { s.remove(); resolve(false); };
+    document.head.appendChild(s);
+  });
+}
+function plEcho(ms) {
+  return new Promise(resolve => {
+    const on = e => { if (e.source === window && typeof e.data === "string" && e.data.startsWith("cadesplugin_loaded")) { removeEventListener("message", on); resolve(true); } };
+    addEventListener("message", on);
+    setTimeout(() => { removeEventListener("message", on); resolve(false); }, ms);
+    postMessage("cadesplugin_echo_request", "*");
+  });
+}
+// the extension API logs through these fields of window.cadesplugin
+window.cadesplugin = window.cadesplugin || {LOG_LEVEL_DEBUG: 4, LOG_LEVEL_INFO: 2, LOG_LEVEL_ERROR: 1, current_log_level: 1};
+async function plStart() {
+  let loaded = false;
+  for (const id of plExtensions) if (await plLoad(id)) { loaded = true; break; }
+  if (!loaded) throw new Error("Расширение КриптоПро не найдено");
+  if (!await plEcho(3000)) throw new Error("Расширение КриптоПро не отвечает");
+  try { plObject = await window.cpcsp_chrome_nmcades.CreatePluginObject(); }
+  catch (e) { throw new Error("Плагин КриптоПро недоступен: " + plError(e)); }
+  const about = await plCreate("CAdESCOM.About");
+  const pv = await (await about.PluginVersion).toString(), cv = await (await about.CSPVersion("", 80)).toString();
+  $("#pl-meta").textContent = "плагин " + pv + " · CSP " + cv;
+  const info = await plCreate("X509Enrollment.CCspInformations");
+  await info.AddAvailableCsps();
+  const types = new Set();
+  for (let i = 0, n = await info.Count; i < n; i++) types.add(await (await info.ItemByIndex(i)).Type);
+  for (const o of $$("#pl-algo option")) o.disabled = !types.has(plAlgos[o.value][0]);
+  const pick = [...$$("#pl-algo option")].find(o => o.value === ca.alg && !o.disabled) || [...$$("#pl-algo option")].find(o => !o.disabled);
+  if (!pick) throw new Error("Нет доступного криптопровайдера");
+  $("#pl-algo").value = pick.value;
+}
+function plOpen() {
+  $("#pl-http").classList.toggle("hidden", location.protocol !== "http:" || ["localhost", "127.0.0.1"].includes(location.hostname));
+  if (plConnect) return plRefreshIssue();
+  $("#pl-state").classList.remove("hidden");
+  status($("#pl-state"), "Подключение…");
+  plConnect = plStart().then(async () => {
+    $("#pl-state").classList.add("hidden");
+    $("#pl-ready").classList.remove("hidden");
+    $("#pl-name").value = "TUC-" + stamp();
+    plRefreshIssue();
+    await plList();
+  }, e => { plConnect = null; status($("#pl-state"), plError(e), "error"); });
+}
+// issuing needs the issue link at a CA that issues by link
+function plRefreshIssue() {
+  const can = !closed || enroll !== ca.url;
+  $("#pl-form").classList.toggle("hidden", !can);
+  $("#pl-closed").classList.toggle("hidden", can);
+}
+async function plList(select) {
+  const st = $("#pl-status");
+  const store = await plCreate("CAdESCOM.Store");
+  await store.Open(2, "My", 2);
+  const all = await store.Certificates, found = [];
+  for (let i = 1, n = await all.Count; i <= n; i++) {
+    const c = await all.Item(i), sha1 = await c.Thumbprint;
+    // TUC knows the certificates this CA issued
+    if ((await fetch("/" + ca.id + "/cert/" + sha1, {method: "HEAD"})).ok)
+      found.push({c, sha1, cn: (await c.SubjectName).replace(/^.*?CN=("?)(.*?)\1(,.*)?$/, "$2"), till: new Date(await c.ValidToDate), key: await c.HasPrivateKey()});
+  }
+  await store.Close();
+  plCerts = found.sort((a, b) => b.till - a.till);
+  plChosen = plCerts.some(x => x.sha1 === select) ? select : plCerts.some(x => x.sha1 === plChosen) ? plChosen : plCerts[0]?.sha1;
+  $("#pl-certs").replaceChildren(...plCerts.map(x => {
+    const b = document.createElement("button");
+    b.type = "button"; b.setAttribute("role", "option"); b.dataset.sha1 = x.sha1;
+    b.append(Object.assign(document.createElement("span"), {textContent: x.cn}), Object.assign(document.createElement("span"), {className: "id", textContent: "до " + x.till.toISOString().slice(0, 10)}));
+    b.onclick = () => { plChosen = x.sha1; $("#pl-confirm").classList.add("hidden"); plInfo(); };
+    return b;
+  }));
+  $("#pl-certs").classList.toggle("hidden", !plCerts.length);
+  plInfo();
+  status(st, plCerts.length ? "" : "В хранилище нет сертификатов этого УЦ");
+}
+const plSelected = () => plCerts.find(x => x.sha1 === plChosen);
+function plInfo(result) {
+  const x = plSelected();
+  for (const b of $$("#pl-certs button")) b.setAttribute("aria-selected", b.dataset.sha1 === plChosen);
+  for (const b of ["#pl-check", "#pl-revoke"]) $(b).disabled = !x;
+  $("#pl-revoke").disabled = !x || !x.key;
+  $("#pl-info").textContent = x ? "SHA-1 " + x.sha1 + (x.key ? "" : " · без закрытого ключа") + (result ? " · " + result : "") : "";
+}
+async function plSign(x, text) {
+  const signer = await plCreate("CAdESCOM.CPSigner");
+  await signer.propset_Certificate(x.c);
+  await signer.propset_CheckCertificate(false);
+  // the leaf only: an untrusted root does not stop the signature
+  await signer.propset_Options(2);
+  const sd = await plCreate("CAdESCOM.CadesSignedData");
+  await sd.propset_ContentEncoding(1);
+  await sd.propset_Content(btoa(text));
+  return sd.SignCades(signer, 1, false);
+}
+function plRootCommand() {
+  const root = ca.root + ".crt";
+  return value("os") === "windows" ?
+    ['$env:Path += ";C:\\Program Files\\Crypto Pro\\CSP"', 'curl.exe -sSf -o tuc-root.cer "' + root + '"', "if ($LASTEXITCODE -eq 0) { certmgr -inst -store uRoot -file tuc-root.cer }"].join("; " + String.fromCharCode(96) + "\n") :
+    "export PATH=$PATH:" + (value("os") === "macos" ? "/opt/cprocsp/bin" : "/opt/cprocsp/bin/amd64") + " && \\\ncurl -sSf -o tuc-root.cer \"" + root + "\" && \\\ncertmgr -inst -store uRoot -file tuc-root.cer";
+}
+function plUntrusted() {
+  $("#pl-root-cmd").textContent = plRootCommand();
+  $("#pl-root").classList.remove("hidden");
+}
+$("#pl-root-copy").onclick = e => copyText($("#pl-root-cmd").textContent, e.target, "Скопировать команду");
+$("#pl-refresh").onclick = async () => { try { await plList(plChosen); } catch (e) { status($("#pl-status"), plError(e), "error"); } };
+$("#pl-issue").onclick = async e => {
+  const btn = e.target, st = $("#pl-issue-status"), cn = $("#pl-name").value.trim(), algo = $("#pl-algo").value, [type, len, hash] = plAlgos[algo];
+  if (!cn) { $("#pl-name").focus(); return status(st, "Укажите имя", "error"); }
+  btn.disabled = true;
+  try {
+    status(st, "Создание ключа…");
+    const key = await plCreate("X509Enrollment.CX509PrivateKey");
+    await key.propset_ProviderType(type);
+    await key.propset_KeySpec(1);
+    if (len) await key.propset_Length(len);
+    await key.propset_ContainerName("\\\\.\\HDIMAGE\\" + fileName(cn));
+    await key.propset_Pin($("#pl-pin").value);
+    const req = await plCreate("X509Enrollment.CX509CertificateRequestPkcs10");
+    await req.InitializeFromPrivateKey(1, key, "");
+    if (hash) { const oid = await plCreate("X509Enrollment.CObjectId"); await oid.InitializeFromValue(hash); await req.propset_HashAlgorithm(oid); }
+    const dn = await plCreate("X509Enrollment.CX500DistinguishedName");
+    await dn.Encode('CN="' + cn.replace(/"/g, '""') + '"');
+    await req.propset_Subject(dn);
+    const enr = await plCreate("X509Enrollment.CX509Enrollment");
+    await enr.InitializeFromRequest(req);
+    const csr = await enr.CreateRequest(1);
+    status(st, "Выпуск…");
+    const r = await fetch(new URL(enroll).pathname + ($("#pl-client").checked ? "/tls-client" : "") + "/certfnsh.asp",
+      {method: "POST", headers: {"Content-Type": "application/x-www-form-urlencoded"}, body: "CertRequest=" + encodeURIComponent(csr)});
+    const page = await r.text(), p7 = [...page.matchAll(/sPKCS7=sPKCS7 & "([^"]*)"/g)].map(m => m[1]).join("");
+    if (!p7) throw new Error(page.replace(/<[^>]*>/g, "").trim() || "ошибка " + r.status);
+    status(st, "Установка…");
+    const inst = await plCreate("X509Enrollment.CX509Enrollment");
+    await inst.Initialize(1);
+    let untrusted = false;
+    try { await inst.InstallResponse(0, p7, 7, ""); }
+    catch (err) {
+      if (!/0x800B0109/i.test(plError(err))) throw err;
+      untrusted = true;
+      await inst.InstallResponse(4, p7, 7, "");
+    }
+    if (untrusted) plUntrusted();
+    const store = await plCreate("CAdESCOM.Store");
+    await store.Open(2, "My", 2);
+    const found = await (await store.Certificates).Find(1, cn);
+    let sha1 = "", newest = 0;
+    for (let i = 1, n = await found.Count; i <= n; i++) {
+      const c = await found.Item(i), from = +new Date(await c.ValidFromDate);
+      if (await c.HasPrivateKey() && from >= newest) { newest = from; sha1 = await c.Thumbprint; }
+    }
+    await store.Close();
+    await plList(sha1);
+    status(st, "Установлен " + cn, "ok");
+    $("#pl-name").value = "TUC-" + stamp();
+  } catch (err) { status(st, "Не удалось выпустить: " + plError(err), "error"); }
+  finally { btn.disabled = false; }
+};
+$("#pl-check").onclick = async e => {
+  const x = plSelected(), st = $("#pl-status");
+  if (!x) return;
+  e.target.disabled = true; status(st, "Проверка…");
+  const out = [];
+  try {
+    if (x.key) {
+      try {
+        const sig = await plSign(x, "TUC " + new Date().toISOString());
+        await (await plCreate("CAdESCOM.CadesSignedData")).VerifyCades(sig, 1, false);
+        out.push("подпись верна");
+      } catch (err) {
+        out.push("подпись: " + plError(err));
+        if (/0x800B010A|0x800B0109/i.test(plError(err))) plUntrusted();
+      }
+    }
+    try { out.push((await (await x.c.IsValid()).Result) ? "сертификат действителен" : "сертификат недействителен"); }
+    catch (err) { out.push("сертификат: " + plError(err)); }
+    status(st, "");
+    plInfo(out.join(" · "));
+  } finally { e.target.disabled = false; }
+};
+$("#pl-revoke").onclick = () => {
+  const x = plSelected();
+  if (!x) return;
+  $("#pl-confirm-cert").textContent = x.cn + " · SHA-1 " + x.sha1;
+  $("#pl-confirm").classList.remove("hidden");
+};
+$("#pl-cancel").onclick = () => $("#pl-confirm").classList.add("hidden");
+$("#pl-revoke-yes").onclick = async e => {
+  const x = plSelected(), st = $("#pl-status");
+  if (!x) return;
+  e.target.disabled = true; status(st, "Отзыв…");
+  try {
+    const r = await fetch("/" + ca.id + "/revoke", {method: "POST", body: await plSign(x, "revoke")});
+    const text = (await r.text()).trim();
+    if (!r.ok) throw new Error(text || "ошибка " + r.status);
+    $("#pl-confirm").classList.add("hidden");
+    status(st, "Отозван " + x.cn, "ok");
+  } catch (err) { status(st, "Не удалось отозвать: " + plError(err), "error"); }
+  finally { e.target.disabled = false; }
+};
 $("#copy-pem").onclick = e => copyText(pem(ca.der), e.target, "Скопировать PEM");
 $("#certview").href = certview(ca.der);
 for (const c of $$(".copy")) copyCell(c, c.textContent.trim());
-openable($("#cert")); openable($("#revoke")); openable($("#hier-row")); openable($("#verify"));
+openable($("#cert")); openable($("#plugin"), plOpen); openable($("#revoke")); openable($("#hier-row")); openable($("#verify"));
 // only the recipient of an issue link comes to issue: that row is open; otherwise all rows are closed
 const openIssue = openable($("#issue"));
 if (issue && !token) openIssue(true);
@@ -886,7 +1124,7 @@ func (s *Service) caPage(w http.ResponseWriter, r *http.Request) {
 		"Commands": commands(urls{s.publicationURL(n.id), s.caURL(n.id), s.estURL(n.id)}, s.publicationURL(chain[0].ID), n.alg),
 		"Child": map[string]any{"Subject": testName(len(chain) + 1), "Closed": n.closed, "Child": true,
 			"Algos": algos, "Alg": n.alg},
-		"JSON": map[string]any{"id": n.id, "url": s.caURL(n.id), "pub": s.publicationURL(n.id), "est": s.estURL(n.id), "alg": n.alg, "issuance": n.iss, "gostChain": gostChain, "parent": parent, "closed": n.closed, "disabled": n.disabled,
+		"JSON": map[string]any{"id": n.id, "url": s.caURL(n.id), "pub": s.publicationURL(n.id), "root": s.publicationURL(chain[0].ID), "est": s.estURL(n.id), "alg": n.alg, "issuance": n.iss, "gostChain": gostChain, "parent": parent, "closed": n.closed, "disabled": n.disabled,
 			"der": base64.StdEncoding.EncodeToString(n.der)},
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
