@@ -42,7 +42,10 @@ var (
 	oidOCSP         = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 1}
 	oidCAIssuers    = asn1.ObjectIdentifier{1, 3, 6, 1, 5, 5, 7, 48, 2}
 	oidExtensionReq = asn1.ObjectIdentifier{1, 2, 840, 113549, 1, 9, 14}
-	keyUsageCA      = []byte{0x01, 0x06} // keyCertSign, cRLSign
+	// older cryptcp builds, 5.0.13484 among them, request extensions in this
+	// Microsoft attribute
+	oidMSExtensionReq = asn1.ObjectIdentifier{1, 3, 6, 1, 4, 1, 311, 2, 1, 14}
+	keyUsageCA        = []byte{0x01, 0x06} // keyCertSign, cRLSign
 )
 
 // Attribute names of a distinguished name and the ASN.1 string tag of their
@@ -560,78 +563,94 @@ func leafKeyUsage(spki []byte) cryptobyte.String {
 	return keyUsageExt(content)
 }
 
-// requestTemplate is the template of u with the DNS names a request asks for;
-// the CA builds all extensions and ignores the others requested.
+// requestTemplate is the template of u with the DNS names of the first
+// readable SAN a request asks for, in either extension request attribute; the
+// CA builds all extensions and skips the others requested, duplicate or
+// malformed ones included.
 func requestTemplate(attrs []cryptobyte.String, u purpose) ([]cryptobyte.String, error) {
-	var san []byte
-	seenRequest := false
-	for _, a := range attrs {
-		var oid asn1.ObjectIdentifier
-		var set, exts cryptobyte.String
-		if !a.ReadASN1ObjectIdentifier(&oid) || !a.ReadASN1(&set, cbasn1.SET) || !a.Empty() {
-			return nil, errors.New("bad request attribute")
-		}
-		if !oid.Equal(oidExtensionReq) {
-			continue
-		}
-		if seenRequest || !set.ReadASN1(&exts, cbasn1.SEQUENCE) || !set.Empty() {
-			return nil, errors.New("неоднозначные расширения CSR")
-		}
-		seenRequest = true
-		for !exts.Empty() {
-			var body, value cryptobyte.String
-			var eoid asn1.ObjectIdentifier
-			if !exts.ReadASN1(&body, cbasn1.SEQUENCE) || !body.ReadASN1ObjectIdentifier(&eoid) {
-				return nil, errors.New("bad requested extension")
-			}
-			if !eoid.Equal(oidSAN) {
-				continue
-			}
-			if len(body) > maxExtension {
-				return nil, errors.New("слишком большое расширение CSR")
-			}
-			var critical bool
-			if (body.PeekASN1Tag(cbasn1.BOOLEAN) && !body.ReadASN1Boolean(&critical)) || !body.ReadASN1(&value, cbasn1.OCTET_STRING) || !body.Empty() {
-				return nil, errors.New("bad requested extension")
-			}
-			if san != nil {
-				return nil, errors.New("повторное SAN в CSR")
-			}
-			san = []byte(value)
-		}
-	}
 	if !u.tls() {
 		return nil, nil
 	}
-	var names []string
-	if san != nil {
-		in := cryptobyte.String(san)
-		var seq cryptobyte.String
-		if !in.ReadASN1(&seq, cbasn1.SEQUENCE) || !in.Empty() {
-			return nil, errors.New("некорректный SAN в CSR")
+	var bad error
+	for _, a := range attrs {
+		var oid asn1.ObjectIdentifier
+		var set cryptobyte.String
+		if !a.ReadASN1ObjectIdentifier(&oid) || !a.ReadASN1(&set, cbasn1.SET) || !oid.Equal(oidExtensionReq) && !oid.Equal(oidMSExtensionReq) {
+			continue
 		}
-		seen := make(map[string]bool)
-		for !seq.Empty() {
-			var value cryptobyte.String
-			var tag cbasn1.Tag
-			if !seq.ReadAnyASN1(&value, &tag) {
-				return nil, errors.New("некорректный SAN в CSR")
-			}
-			if tag != cbasn1.Tag(2).ContextSpecific() {
-				continue
-			}
-			name := string(value)
-			if !validDNS(name) {
-				return nil, errors.New("некорректное DNS-имя в CSR")
-			}
-			name = strings.ToLower(name)
-			if !seen[name] {
-				names = append(names, name)
-				seen[name] = true
+		for _, exts := range sequences(set) {
+			for _, body := range sequences(exts) {
+				var value cryptobyte.String
+				var eoid asn1.ObjectIdentifier
+				var critical bool
+				if !body.ReadASN1ObjectIdentifier(&eoid) || !eoid.Equal(oidSAN) || len(body) > maxExtension ||
+					(body.PeekASN1Tag(cbasn1.BOOLEAN) && !body.ReadASN1Boolean(&critical)) || !body.ReadASN1(&value, cbasn1.OCTET_STRING) || !body.Empty() {
+					continue
+				}
+				names, err := sanDNS(value)
+				if err != nil {
+					if bad != errSANName {
+						bad = err
+					}
+					continue
+				}
+				return tlsExtensions(names, u)
 			}
 		}
 	}
-	return tlsExtensions(names, u)
+	if bad != nil && u.server {
+		return nil, bad
+	}
+	return tlsExtensions(nil, u)
+}
+
+// sequences are the SEQUENCE elements of in, skipping elements of other types
+// up to the first one that cannot be read.
+func sequences(in cryptobyte.String) []cryptobyte.String {
+	var out []cryptobyte.String
+	for !in.Empty() {
+		var e cryptobyte.String
+		var tag cbasn1.Tag
+		if !in.ReadAnyASN1(&e, &tag) {
+			break
+		}
+		if tag == cbasn1.SEQUENCE {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+var errSANName = errors.New("некорректное DNS-имя в CSR")
+
+// sanDNS is the DNS names of a SAN value, lowercased without duplicates.
+func sanDNS(san cryptobyte.String) ([]string, error) {
+	var seq cryptobyte.String
+	if !san.ReadASN1(&seq, cbasn1.SEQUENCE) || !san.Empty() {
+		return nil, errors.New("некорректный SAN в CSR")
+	}
+	var names []string
+	seen := make(map[string]bool)
+	for !seq.Empty() {
+		var value cryptobyte.String
+		var tag cbasn1.Tag
+		if !seq.ReadAnyASN1(&value, &tag) {
+			return nil, errors.New("некорректный SAN в CSR")
+		}
+		if tag != cbasn1.Tag(2).ContextSpecific() {
+			continue
+		}
+		name := string(value)
+		if !validDNS(name) {
+			return nil, errSANName
+		}
+		name = strings.ToLower(name)
+		if !seen[name] {
+			names = append(names, name)
+			seen[name] = true
+		}
+	}
+	return names, nil
 }
 
 var (

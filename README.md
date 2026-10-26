@@ -69,9 +69,11 @@ keyUsage, non-DNS SAN entries and all other extensions are ignored. Key usage,
 key identifiers, AIA and any CRL/OCSP URLs come from the CA's template and
 settings.
 
-Repeated SAN extensions or extension-request attributes and malformed SAN are
-refused. DNS names are ASCII labels of 1–63 letters, digits or hyphens, with
-no leading/trailing hyphen, up to 253 characters overall; no wildcards or
+DNS names come from the first readable SAN in the PKCS#9 extension request
+or, as older `cryptcp` builds send it, the Microsoft one
+(1.3.6.1.4.1.311.2.1.14); duplicate and malformed extensions are skipped.
+DNS names are ASCII labels of 1–63 letters, digits or hyphens, with no
+leading/trailing hyphen, up to 253 characters overall; no wildcards or
 trailing dot. They are lowercased and duplicates removed. Without TLS, SAN
 names are discarded. PFX selects the same templates with its `tlsServer`,
 `tlsClient` and `fqdn` fields. DNS names are syntax-checked, not
