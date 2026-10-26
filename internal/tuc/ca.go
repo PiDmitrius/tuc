@@ -350,7 +350,7 @@ func parseRequest(der []byte) (subject, spki []byte, attrs []cryptobyte.String, 
 }
 
 // Issue verifies a PKCS#10 request and issues with the user or TLS template.
-func (s *Service) Issue(n *node, request string) ([]byte, error) {
+func (s *Service) Issue(n *node, request string, u purpose) ([]byte, error) {
 	der, err := unarmor([]byte(request))
 	if err != nil {
 		return nil, errors.New("не удалось прочитать CSR")
@@ -369,7 +369,7 @@ func (s *Service) Issue(n *node, request string) ([]byte, error) {
 	if err := s.mp.VerifyRequest(der); err != nil {
 		return nil, errors.New("неверная подпись CSR или некорректный запрос")
 	}
-	extra, err := requestTemplate(attrs)
+	extra, err := requestTemplate(attrs, u)
 	if err != nil {
 		return nil, err
 	}

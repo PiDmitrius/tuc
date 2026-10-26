@@ -51,7 +51,7 @@ func TestPublishURLs(t *testing.T) {
 		}
 	}
 	check(n.der, root)
-	leaf, err := s.Issue(n, string(csr(t, e)))
+	leaf, err := s.Issue(n, string(csr(t, e)), purpose{})
 	if err != nil {
 		t.Fatal(err)
 	}

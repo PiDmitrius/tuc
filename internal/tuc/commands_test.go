@@ -48,7 +48,8 @@ func TestCryptoProDN(t *testing.T) {
 
 func TestTLSCommandNameLimit(t *testing.T) {
 	for _, fqdn := range []string{"example.test", strings.Repeat("a", 31) + ".example.test", strings.Repeat("a", 32) + ".example.test", strings.Repeat("a", 50) + ".example.test"} {
-		for _, command := range []string{posixEnroll("/opt/cprocsp/bin/amd64", "rsa2048", true, true), posixEnroll("/opt/cprocsp/bin", "rsa2048", true, true), estEnroll("rsa2048", true, true)} {
+		server := enrollPurposes[1]
+		for _, command := range []string{posixEnroll("/opt/cprocsp/bin/amd64", "rsa2048", server, true), posixEnroll("/opt/cprocsp/bin", "rsa2048", server, true), estEnroll("rsa2048", server, true)} {
 			command = strings.NewReplacer(markFQDN, fqdn, markTUC, "http://example.test", markEST, "http://example.test/est").Replace(command)
 			end := strings.Index(command, "cryptcp -createcert")
 			if end < 0 {
@@ -67,7 +68,7 @@ func TestTLSCommandNameLimit(t *testing.T) {
 			}
 		}
 	}
-	if !strings.Contains(psEnroll("rsa2048", true, true), `if ($FQDN.Length + 1 + $NAME.Length -le 64) { $NAME = "$FQDN-$NAME" }`) {
+	if !strings.Contains(psEnroll("rsa2048", enrollPurposes[1], true), `if ($FQDN.Length + 1 + $NAME.Length -le 64) { $NAME = "$FQDN-$NAME" }`) {
 		t.Error("PowerShell TLS CN has no length bound")
 	}
 }
@@ -78,5 +79,25 @@ func TestGOSTChainHint(t *testing.T) {
 	child := e.create("/"+root.ID+"/new", map[string]any{"subject": "CN=RSA", "algo": "rsa2048", "token": root.Admin})
 	if !bytes.Contains(e.get(child.URL), []byte(`"gostChain":true`)) {
 		t.Fatal("RSA CA lost GOST ancestor requirement")
+	}
+}
+
+func TestEnrollCommandURLs(t *testing.T) {
+	for _, p := range enrollPurposes {
+		for _, chain := range []bool{true, false} {
+			opts := p.u.options("/")
+			if !chain {
+				opts += "/justcert"
+			}
+			for _, cmd := range []string{posixEnroll("/opt/cprocsp/bin", "rsa2048", p, chain), psEnroll("rsa2048", p, chain)} {
+				if !strings.Contains(cmd, `-ca "$TUC`+opts+`"`) || strings.Contains(cmd, "-eku") || strings.Contains(cmd, "-altname") != p.dns {
+					t.Errorf("%s chain=%v: %s", p.id, chain, cmd)
+				}
+			}
+		}
+		cmd := estEnroll("rsa2048", p, true)
+		if !strings.Contains(cmd, `"$EST`+p.u.options("+")+`/simpleenroll"`) || strings.Contains(cmd, "extendedKeyUsage") || strings.Contains(cmd, "subjectAltName") != p.dns {
+			t.Errorf("%s: %s", p.id, cmd)
+		}
 	}
 }

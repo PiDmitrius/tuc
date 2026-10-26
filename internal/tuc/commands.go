@@ -54,7 +54,7 @@ type osCommands struct {
 }
 
 type enrollCommand struct {
-	Purpose  string // "plain" or "tls"
+	Purpose  string // the id of an enrollPurpose
 	Response string // "chain" or "cert"
 	Script   template.HTML
 }
@@ -66,24 +66,56 @@ const psDN = `$DN = $NAME
   if ($DN -match '[,+"<>;=#]') { $DN = '"' + $DN.Replace('"', '""') + '"' }
   $DN = 'CN=' + $DN`
 
-const ekuTLS = "-eku 1.3.6.1.5.5.7.3.1 -eku 1.3.6.1.5.5.7.3.2"
+// enrollPurpose is a purpose the page offers: the TLS use and whether the
+// request carries a DNS name, which a server requires and a client may have.
+type enrollPurpose struct {
+	id  string
+	u   purpose
+	dns bool
+}
 
-var tlsName = []string{"NAME=TUC-$(date +%Y%m%d-%H%M%S)", `if [ $((${#FQDN} + 1 + ${#NAME})) -le 64 ]; then NAME=$FQDN-$NAME; fi`}
+var enrollPurposes = []enrollPurpose{
+	{"user", purpose{}, false},
+	{"server", purpose{server: true}, true},
+	{"client", purpose{client: true}, false},
+	{"client-dns", purpose{client: true}, true},
+	{"both", purpose{server: true, client: true}, true},
+}
 
-func posixEnroll(path string, a algo, tls, withChain bool) string {
+// options are the enroll path options or EST label options of u, each after sep.
+func (u purpose) options(sep string) string {
+	o := ""
+	if u.server {
+		o += sep + "tls-server"
+	}
+	if u.client {
+		o += sep + "tls-client"
+	}
+	return o
+}
+
+// cryptcpCA is the -ca option: the enroll URL with the purpose and response
+// options; -silent skips the root install prompt.
+func cryptcpCA(u purpose, withChain bool) string {
+	url := "$TUC" + u.options("/")
+	if withChain {
+		return ` -ca "` + url + `"`
+	}
+	return ` -ca "` + url + `/justcert" -silent`
+}
+
+var dnsName = []string{"NAME=TUC-$(date +%Y%m%d-%H%M%S)", `if [ $((${#FQDN} + 1 + ${#NAME})) -le 64 ]; then NAME=$FQDN-$NAME; fi`}
+
+func posixEnroll(path string, a algo, p enrollPurpose, withChain bool) string {
 	lines := []string{"export PATH=$PATH:" + path, "TUC=" + markTUC}
 	opts := algoDefs[a].cryptcp
-	if tls {
-		lines = append(append(lines, "FQDN="+markFQDN), tlsName...)
-		opts += ` -altname "$FQDN" ` + ekuTLS
+	if p.dns {
+		lines = append(append(lines, "FQDN="+markFQDN), dnsName...)
+		opts += ` -altname "$FQDN"`
 	} else {
 		lines = append(lines, "NAME=${USER:-$(id -un)}-TUC-$(date +%Y%m%d-%H%M%S)")
 	}
-	ca := ` -ca "$TUC"`
-	if !withChain {
-		ca = ` -ca "$TUC/justcert" -silent`
-	}
-	lines = append(lines, `cryptcp -createcert -rdn "CN=$NAME" -cont "\\\\.\\HDIMAGE\\$NAME" -du -pin ""`+opts+ca)
+	lines = append(lines, `cryptcp -createcert -rdn "CN=$NAME" -cont "\\\\.\\HDIMAGE\\$NAME" -du -pin ""`+opts+cryptcpCA(p.u, withChain))
 	return chain(lines...)
 }
 
@@ -96,21 +128,17 @@ func posixRevoke(path string) string {
 fi`)
 }
 
-func psEnroll(a algo, tls, withChain bool) string {
+func psEnroll(a algo, p enrollPurpose, withChain bool) string {
 	date := "$(Get-Date -Format yyyyMMdd-HHmmss)"
 	lines := []string{`$env:Path += ";C:\Program Files\Crypto Pro\CSP"`, `$TUC = "` + markTUC + `"`}
 	opts := algoDefs[a].cryptcp
-	if tls {
+	if p.dns {
 		lines = append(lines, `$FQDN = "`+markFQDN+`"`, `$NAME = "TUC-`+date+`"`, `if ($FQDN.Length + 1 + $NAME.Length -le 64) { $NAME = "$FQDN-$NAME" }`)
-		opts += " -altname $FQDN " + ekuTLS
+		opts += " -altname $FQDN"
 	} else {
 		lines = append(lines, `$NAME = "$env:USERNAME-TUC-`+date+`"`)
 	}
-	ca := " -ca $TUC"
-	if !withChain {
-		ca = ` -ca "$TUC/justcert" -silent`
-	}
-	lines = append(lines, `cryptcp -createcert -rdn "CN=$NAME" -cont "\\.\HDIMAGE\$NAME" -du`+opts+ca)
+	lines = append(lines, `cryptcp -createcert -rdn "CN=$NAME" -cont "\\.\HDIMAGE\$NAME" -du`+opts+cryptcpCA(p.u, withChain))
 	return psChain(lines...)
 }
 
@@ -125,17 +153,17 @@ func psRevoke() string {
 
 // estEnroll enrolls with openssl and curl over EST into $NAME.key and
 // $NAME.crt, the certificate followed, with chain, by the CA chain.
-func estEnroll(a algo, tls, withChain bool) string {
+func estEnroll(a algo, p enrollPurpose, withChain bool) string {
 	lines := []string{"EST=" + markEST}
 	ext := ""
-	if tls {
-		lines = append(append(lines, "FQDN="+markFQDN), tlsName...)
-		ext = ` -addext "subjectAltName=DNS:$FQDN" -addext "extendedKeyUsage=serverAuth,clientAuth"`
+	if p.dns {
+		lines = append(append(lines, "FQDN="+markFQDN), dnsName...)
+		ext = ` -addext "subjectAltName=DNS:$FQDN"`
 	} else {
 		lines = append(lines, "NAME=${USER:-$(id -un)}-TUC-$(date +%Y%m%d-%H%M%S)")
 	}
 	lines = append(lines, `openssl req -new `+algoDefs[a].openssl+` -nodes -keyout "$NAME.key" -subj "/CN=$NAME"`+ext+` -outform DER |
-  base64 | curl -sSf --data-binary @- -H "Content-Type: application/pkcs10" "$EST/simpleenroll" |
+  base64 | curl -sSf --data-binary @- -H "Content-Type: application/pkcs10" "$EST`+p.u.options("+")+`/simpleenroll" |
   base64 -d | openssl pkcs7 -inform DER -print_certs -out "$NAME.crt"`)
 	if withChain {
 		lines = append(lines, `curl -sSf "$EST/cacerts" | base64 -d | openssl pkcs7 -inform DER -print_certs >> "$NAME.crt"`)
@@ -231,15 +259,15 @@ fi`)
 func commands(url, est, root string, a algo) []osCommands {
 	type osDef struct {
 		id, title, tool string
-		enroll          func(tls, chain bool) string
+		enroll          func(p enrollPurpose, chain bool) string
 		imp, verify     string
 		revoke          string
 	}
-	posix := func(path string) func(bool, bool) string {
-		return func(tls, chain bool) string { return posixEnroll(path, a, tls, chain) }
+	posix := func(path string) func(enrollPurpose, bool) string {
+		return func(p enrollPurpose, chain bool) string { return posixEnroll(path, a, p, chain) }
 	}
-	ps := func(tls, chain bool) string { return psEnroll(a, tls, chain) }
-	openssl := func(tls, chain bool) string { return estEnroll(a, tls, chain) }
+	ps := func(p enrollPurpose, chain bool) string { return psEnroll(a, p, chain) }
+	openssl := func(p enrollPurpose, chain bool) string { return estEnroll(a, p, chain) }
 	defs := []osDef{
 		{"pfx", "PFX", "pfx", nil, "", "", pfxRevoke()},
 		{"openssl", "OpenSSL", "openssl", openssl, opensslImport(), estVerify(root, url), estRevoke()},
@@ -255,13 +283,13 @@ func commands(url, est, root string, a algo) []osCommands {
 		if d.tool == "cryptopro" {
 			responses = append(responses, "cert")
 		}
-		for _, purpose := range []string{"plain", "tls"} {
+		for _, p := range enrollPurposes {
 			if d.enroll == nil {
 				break
 			}
 			for _, response := range responses {
-				c.Enroll = append(c.Enroll, enrollCommand{purpose, response,
-					script(d.enroll(purpose == "tls", response == "chain"), url, est)})
+				c.Enroll = append(c.Enroll, enrollCommand{p.id, response,
+					script(d.enroll(p, response == "chain"), url, est)})
 			}
 		}
 		out = append(out, c)

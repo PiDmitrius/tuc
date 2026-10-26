@@ -81,14 +81,25 @@ with sync_playwright() as p:
     page.get_by_role("button", name="Скопировать команду").click()
     cmd = page.evaluate("window.copied")
     assert '-ca "$TUC/justcert" -silent' in cmd and "TUC=" + base in cmd, cmd
-    issue_card.get_by_text("TLS", exact=True).click()
+    # A client needs no DNS name; a server does, and both take it
+    issue_card.get_by_text("TLS-клиент", exact=True).click()
+    expect(page.locator("#fqdn-label")).to_have_text("DNS-имя (необязательно)")
     page.get_by_role("button", name="Скопировать команду").click()
-    expect(page.locator("#enroll-status")).to_have_text("Укажите DNS-имя сервера")
+    cmd = page.evaluate("window.copied")
+    assert '-ca "$TUC/tls-client/justcert" -silent' in cmd and "-altname" not in cmd, cmd
+    issue_card.get_by_text("TLS-сервер", exact=True).click()
+    page.get_by_role("button", name="Скопировать команду").click()
+    expect(page.locator("#enroll-status")).to_have_text("Укажите DNS-имя")
     expect(page.locator("#fqdn")).to_be_focused()
     page.locator("#fqdn").fill("srv.example.org")
     page.get_by_role("button", name="Скопировать команду").click()
     cmd = page.evaluate("window.copied")
-    assert "FQDN=srv.example.org" in cmd and "1.3.6.1.5.5.7.3.1" in cmd, cmd
+    assert "FQDN=srv.example.org" in cmd and "-eku" not in cmd and '-ca "$TUC/tls-server/tls-client/justcert"' in cmd, cmd
+    tools.get_by_text("OpenSSL", exact=True).click()
+    page.get_by_role("button", name="Скопировать команду").click()
+    cmd = page.evaluate("window.copied")
+    assert '"$EST+tls-server+tls-client/simpleenroll"' in cmd and "subjectAltName=DNS:$FQDN" in cmd and "extendedKeyUsage" not in cmd, cmd
+    tools.get_by_text("КриптоПро", exact=True).click()
     page.locator("#issued > .head").click()
     expect(page.get_by_text("Сертификатов пока нет.")).to_be_visible()
     expect(page.locator("#issued-meta")).to_have_text("0")
@@ -97,7 +108,8 @@ with sync_playwright() as p:
     page.locator("#settings .head").click()
     page.locator("#mode").get_by_text("По ссылке").click()
     expect(page.locator("#mode-pill")).to_have_text("Выпуск по ссылке")
-    issue_card.get_by_text("Обычный", exact=True).click()
+    issue_card.get_by_text("TLS-сервер", exact=True).click()
+    issue_card.get_by_text("TLS-клиент", exact=True).click()
     page.get_by_role("button", name="Скопировать команду").click()
     cmd = page.evaluate("window.copied")
     assert re.search(r"TUC=\S+/[0-9A-F]{40}/[a-z2-7]{32} && \\\n", cmd), cmd
@@ -110,13 +122,13 @@ with sync_playwright() as p:
     tools.get_by_text("PFX", exact=True).click()
     expect(page.locator("#copy-enroll")).to_be_hidden()
     expect(page.locator("#pfx-algo")).to_have_value("ecdsa384")
-    # The name of a TLS PFX starts with the server name while the CN fits
-    issue_card.get_by_text("TLS", exact=True).click()
+    # The name of a TLS PFX starts with the DNS name while the CN fits
+    issue_card.get_by_text("TLS-сервер", exact=True).click()
     page.locator("#fqdn").fill("service.integration.testing.development.example.org")
     expect(page.locator("#pfx-name")).to_have_value(re.compile(r"^TUC-\d{8}-\d{6}$"))
     page.locator("#fqdn").fill("srv.example.org")
     expect(page.locator("#pfx-name")).to_have_value(re.compile(r"^srv\.example\.org-TUC-\d{8}-\d{6}$"))
-    issue_card.get_by_text("Обычный", exact=True).click()
+    issue_card.get_by_text("TLS-сервер", exact=True).click()
     # An existing PFX: its import commands take the file, CN and password typed
     expect(page.locator("#pfx-import")).to_be_hidden()
     page.get_by_role("button", name="Импорт имеющегося PFX").click()
@@ -431,7 +443,8 @@ with sync_playwright() as p:
     for tab in (visitor, recipient):
         expect(tab.locator("#issue.open")).to_be_visible()
         expect(tab.locator("input[name=tool][value=pfx]")).to_be_checked()
-        expect(tab.locator("input[name=purpose][value=plain]")).to_be_checked()
+        expect(tab.locator("#tls-server")).not_to_be_checked()
+        expect(tab.locator("#tls-client")).not_to_be_checked()
         expect(tab.locator("#settings")).to_be_hidden()
         with tab.expect_download() as download:
             tab.locator("#get-pfx").click()
@@ -447,7 +460,7 @@ with sync_playwright() as p:
     owner.locator("input[name=tool][value=cryptopro]").locator("..").click()
     owner.locator("#os-seg").get_by_text("Linux", exact=True).click()
     owner.locator("#issue").get_by_text("Без цепочки", exact=True).click()
-    owner.locator("#issue").get_by_text("TLS", exact=True).click()
+    owner.locator("#issue").get_by_text("TLS-сервер", exact=True).click()
     for invalid_dns in ("a" * 64 + ".test", ".".join(["a" * 63] * 4), "a.test.", "*.test"):
         owner.locator("#fqdn").fill(invalid_dns)
         owner.locator("#copy-enroll").click()
@@ -460,7 +473,7 @@ with sync_playwright() as p:
     owner.reload()
     owner.locator("#issue > .head").click()
     expect(owner.locator("input[name=tool][value=cryptopro]")).to_be_checked()
-    expect(owner.locator("input[name=purpose][value=plain]")).to_be_checked()
+    expect(owner.locator("#tls-server")).not_to_be_checked()
     expect(owner.locator("input[name=response][value=chain]")).to_be_checked()
     owner.locator("#issue").get_by_text("PFX", exact=True).click()
     owner.locator("#pfx-algo").select_option("rsa2048")

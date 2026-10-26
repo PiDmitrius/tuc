@@ -55,7 +55,7 @@ func TestSubjectStringTypes(t *testing.T) {
 	defer n.Close()
 	for _, name := range []string{"Иван Тест", "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmno", strings.Repeat("Я", 64)} {
 		request, subject := subjectRequest(t, 30, bmpName(name))
-		cert, err := e.svc.Issue(n, string(request))
+		cert, err := e.svc.Issue(n, string(request), purpose{})
 		if err != nil {
 			t.Errorf("%q: %v", name, err)
 			continue
@@ -73,7 +73,7 @@ func TestSubjectStringTypes(t *testing.T) {
 		}
 	}
 	request, _ := subjectRequest(t, 30, bmpName(strings.Repeat("Я", 65)))
-	if _, err := e.svc.Issue(n, string(request)); err == nil {
+	if _, err := e.svc.Issue(n, string(request), purpose{}); err == nil {
 		t.Error("accepted 65 characters")
 	}
 	for _, tc := range []struct {
@@ -106,7 +106,7 @@ func TestSubjectControls(t *testing.T) {
 				value = bmpName(name)
 			}
 			request, _ := subjectRequest(t, tag, value)
-			if _, err := e.svc.Issue(n, string(request)); err == nil {
+			if _, err := e.svc.Issue(n, string(request), purpose{}); err == nil {
 				t.Errorf("CSR accepted %q tag %d", name, tag)
 			}
 		}
@@ -127,7 +127,7 @@ func TestEmptySubjectRequest(t *testing.T) {
 	}
 	defer n.Close()
 	request := csr(t, e)
-	if cert, err := e.svc.Issue(n, string(request)); err == nil {
+	if cert, err := e.svc.Issue(n, string(request), purpose{}); err == nil {
 		t.Fatal("issued empty Subject", len(cert))
 	}
 }

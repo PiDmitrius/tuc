@@ -134,7 +134,7 @@ func (s *Service) gate(ready http.Handler) http.Handler {
 	sealed.HandleFunc("GET /livez", s.health)
 	sealed.HandleFunc("GET /readyz", s.health)
 	sealed.HandleFunc("GET /{id}/cert/{cert}", s.issuedCert)
-	sealed.HandleFunc("GET /.well-known/est/{id}/cacerts", s.estCACerts)
+	sealed.HandleFunc("GET /.well-known/est/{label}/cacerts", s.estCACerts)
 	sealed.HandleFunc("GET /{id}", func(w http.ResponseWriter, r *http.Request) {
 		_, ext, _ := strings.Cut(r.PathValue("id"), ".")
 		if ext == "crt" || ext == "crl" {

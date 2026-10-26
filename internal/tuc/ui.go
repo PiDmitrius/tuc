@@ -280,10 +280,10 @@ const when = s => s ? s.replace("T", " ").replace(/Z$/, " UTC").replace(/^(\d+)-
 <div class="controls" style="margin-top:8px">
 <span class="seg" role="radiogroup" aria-label="Способ выпуска"><label><input type="radio" name="tool" value="pfx"> PFX</label><label><input type="radio" name="tool" value="openssl"> OpenSSL</label><label><input type="radio" name="tool" value="cryptopro"> КриптоПро</label></span>
 <span class="seg" role="radiogroup" aria-label="Операционная система" id="os-seg">{{range .Commands}}{{if eq .Tool "cryptopro"}}<label><input type="radio" name="os" value="{{.ID}}"> {{.Title}}</label>{{end}}{{end}}</span>
-<span class="seg" role="radiogroup" aria-label="Назначение"><label><input type="radio" name="purpose" value="plain" checked> Обычный</label><label><input type="radio" name="purpose" value="tls"> TLS</label></span>
+<span class="seg" role="group" aria-label="Назначение"><label><input type="checkbox" id="tls-server"> TLS-сервер</label><label><input type="checkbox" id="tls-client"> TLS-клиент</label></span>
 <span class="seg" role="radiogroup" aria-label="Ответ УЦ" id="response-seg"><label><input type="radio" name="response" value="chain" checked> С цепочкой</label><label><input type="radio" name="response" value="cert"> Без цепочки</label></span>
 </div>
-<label class="field hidden" id="fqdn-field"><span>DNS-имя сервера</span><input type="text" id="fqdn" placeholder="test.example.org" autocomplete="off" aria-describedby="enroll-status"></label>
+<label class="field hidden" id="fqdn-field"><span id="fqdn-label">DNS-имя</span><input type="text" id="fqdn" placeholder="test.example.org" autocomplete="off" aria-describedby="enroll-status"></label>
 <div class="row hidden" id="pfx-fields"><label class="field"><span>Имя сертификата (CN)</span><input type="text" id="pfx-name" autocomplete="off" aria-describedby="enroll-status"></label><label class="field"><span>Алгоритм ключа</span><select id="pfx-algo">{{range .Algos}}<option value="{{.}}"{{if eq . $.Alg}} selected{{end}}>{{.Long}}</option>{{end}}</select></label><label class="field"><span>Пароль PFX</span><input type="text" id="pfx-password" autocomplete="off" aria-describedby="enroll-status"></label></div>
 <div class="cmds" id="enroll-cmds">{{range $os := .Commands}}{{range .Enroll}}<pre data-os="{{$os.ID}}" data-tool="{{$os.Tool}}" data-purpose="{{.Purpose}}" data-response="{{.Response}}" class="enroll off" inert>{{.Script}}</pre>
 {{end}}{{end}}</div>
@@ -435,17 +435,25 @@ const shown = sel => $$(sel).find(p => !p.classList.contains("off"));
 // show displays one command of the tool group, which alone sizes the block
 const show = (p, tool, on) => { p.classList.toggle("out", p.dataset.tool !== tool); p.classList.toggle("off", !on); p.inert = !on; };
 const fqdnValid = fqdn => fqdn.length <= 253 && fqdn.split(".").every(label => label.length <= 63) && /^[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?(\.[A-Za-z0-9]([A-Za-z0-9-]*[A-Za-z0-9])?)*$/.test(fqdn);
+// use is the TLS use chosen, the DNS name typed and the command variant they select
+function use() {
+  const server = $("#tls-server").checked, client = $("#tls-client").checked, fqdn = $("#fqdn").value.trim();
+  const purpose = server ? (client ? "both" : "server") : client ? (fqdn ? "client-dns" : "client") : "user";
+  return {server, client, tls: server || client, fqdn, purpose};
+}
 function refresh() {
-  const tool = value("tool"), purpose = value("purpose"), os = value("os"), pfx = tool === "pfx", cp = tool === "cryptopro";
+  const tool = value("tool"), os = value("os"), pfx = tool === "pfx", cp = tool === "cryptopro";
   const response = cp ? value("response") : "chain", id = cp ? os : tool;
-  $("#issue-meta").textContent = !issuing ? "по ссылке" : {pfx: "PFX", openssl: "OpenSSL", cryptopro: "КриптоПро"}[tool] + (purpose === "tls" ? " · TLS" : "");
+  const {server, client, tls, fqdn, purpose} = use();
+  $("#issue-meta").textContent = !issuing ? "по ссылке" : {pfx: "PFX", openssl: "OpenSSL", cryptopro: "КриптоПро"}[tool] +
+    (server && client ? " · TLS-сервер и клиент" : server ? " · TLS-сервер" : client ? " · TLS-клиент" : "");
   for (const [sel, on] of [["#os-seg", cp], ["#response-seg", cp], ["#pfx-fields", pfx], ["#copy-enroll", !pfx], ["#get-pfx", pfx], ["#enroll-cmds", !pfx]]) $(sel).classList.toggle("hidden", !on);
   $("#way-note").textContent = pfx ? "Ключ создаёт УЦ и не хранит." : "Выполните в терминале.";
   for (const p of $$("pre.enroll")) show(p, tool, !pfx && p.dataset.os === id && p.dataset.purpose === purpose && p.dataset.response === response);
   $("#enroll-note").textContent = notes[id] + (response === "cert" ? " Корень не устанавливается: он должен быть уже в доверенных." : "");
-  const tls = purpose === "tls", fqdn = $("#fqdn").value.trim();
   $("#fqdn-field").classList.toggle("hidden", !tls);
-  // a CN of a TLS PFX starts with the server name if it fits in 64 characters
+  $("#fqdn-label").textContent = server ? "DNS-имя" : "DNS-имя (необязательно)";
+  // a CN of a TLS PFX starts with the DNS name if it fits in 64 characters
   const auto = "TUC-" + stamp();
   if (pfx && !nameEdited) $("#pfx-name").value = tls && fqdnValid(fqdn) && fqdn.length + 1 + auto.length <= 64 ? fqdn + "-" + auto : auto;
   for (const s of $$("[data-fqdn]")) s.textContent = fqdn || "<FQDN>";
@@ -486,8 +494,8 @@ function invalid(field, msg) {
 }
 // check finds a field that stops the issue, marks and focuses it
 function check(pfx) {
-  const tls = value("purpose") === "tls", fqdn = $("#fqdn").value.trim();
-  const bad = tls && !fqdn ? [$("#fqdn"), "Укажите DNS-имя сервера"] : tls && !fqdnValid(fqdn) ? [$("#fqdn"), "Некорректное DNS-имя"] :
+  const {server, tls, fqdn} = use();
+  const bad = server && !fqdn ? [$("#fqdn"), "Укажите DNS-имя"] : tls && fqdn && !fqdnValid(fqdn) ? [$("#fqdn"), "Некорректное DNS-имя"] :
     pfx && !$("#pfx-name").value.trim() ? [$("#pfx-name"), "Укажите имя"] : pfx && !$("#pfx-password").value ? [$("#pfx-password"), "Укажите пароль PFX"] : null;
   if (bad) { invalid(...bad); bad[0].focus(); }
   return !bad;
@@ -498,7 +506,7 @@ for (const r of $$("input[name=os],input[name=os2],input[name=os3],input[name=os
 for (const r of $$("input[name=where]")) r.addEventListener("change", refresh);
 $("#open-import").onclick = () => { importing = true; pick("imp", value("imp")); $("#imp-file").focus(); };
 for (const r of $$("input[name=imp]")) r.addEventListener("change", () => pick("imp", r.value));
-for (const r of $$("input[name=purpose],input[name=response]")) r.addEventListener("change", refresh);
+for (const r of $$("#tls-server,#tls-client,input[name=response]")) r.addEventListener("change", refresh);
 // A PFX is named like the commands name a certificate, at the time of the
 // issue unless edited, under a random password
 const stamp = () => new Date().toISOString().replace(/\D/g, "").replace(/^(\d{8})(\d{6}).*/, "$1-$2");
@@ -510,11 +518,11 @@ $("#get-pfx").onclick = async e => {
   const btn = e.target, st = $("#enroll-status");
   if (!nameEdited) refresh();
   if (!check(true)) return;
-  const name = $("#pfx-name").value.trim(), pass = $("#pfx-password").value, alg = $("#pfx-algo").value;
+  const name = $("#pfx-name").value.trim(), pass = $("#pfx-password").value, alg = $("#pfx-algo").value, u = use();
   btn.disabled = true; status(st, "Выпускаем…");
   try {
     const r = await fetch(new URL(enroll).pathname + "/pfx", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({name, algo: alg,
-      tls: value("purpose") === "tls", fqdn: $("#fqdn").value.trim(), password: pass})});
+      tlsServer: u.server, tlsClient: u.client, fqdn: u.tls ? u.fqdn : "", password: pass})});
     if (r.status === 403 && issue) throw new Error("ссылка выпуска не подходит к этому УЦ. Попросите владельца прислать её заново");
     if (!r.ok) throw new Error((await r.text()).trim() || "ошибка " + r.status);
     // the file is named as the server names it

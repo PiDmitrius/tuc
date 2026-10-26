@@ -179,7 +179,7 @@ func TestSealedHTTP(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			der, err := e.svc.Issue(n, string(csr(t, e)))
+			der, err := e.svc.Issue(n, string(csr(t, e)), purpose{})
 			if err != nil {
 				t.Fatal(err)
 			}

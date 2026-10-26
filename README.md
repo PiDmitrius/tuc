@@ -60,22 +60,22 @@ PKCS#10 signatures are checked for all eight algorithms, including GOST through
 MiniPKI. Invalid signatures are refused before issuance. CSR keys must be RSA
 2048/3072/4096, P-256/384/521 or GOST 256/512; other keys are refused.
 
-Leaf extensions come from the CA's user or TLS template, not from the request.
-The request supplies its Subject and public key. Either serverAuth or clientAuth
-in the requested EKU selects TLS; the CA adds both and rebuilds SAN from the
-requested DNS names. Without either, the user template has no EKU or SAN.
-Requested keyUsage, service EKUs (OCSP signing, time-stamping, anyExtendedKeyUsage),
-other EKUs, non-DNS SAN entries and all other extensions are ignored, including
-their requested criticality. Key usage, key identifiers, AIA and any CRL/OCSP
-URLs come from the CA's template and settings.
+Leaf extensions come from the CA's template, not from the request. The
+enroll address selects it: the options `tls-server` and `tls-client` give the
+TLS template with serverAuth, clientAuth or both; without them the user
+template has no EKU or SAN. The request supplies only its Subject, public key
+and, for TLS, DNS names in SAN, which `tls-server` requires. Requested EKU,
+keyUsage, non-DNS SAN entries and all other extensions are ignored. Key usage,
+key identifiers, AIA and any CRL/OCSP URLs come from the CA's template and
+settings.
 
-Repeated SAN/EKU extensions or extension-request attributes, malformed SAN/EKU,
-and empty EKU are refused. TLS requires at least one valid DNS name: ASCII
-labels of 1–63 letters, digits or hyphens, with no leading/trailing hyphen,
-up to 253 characters overall; no wildcards or trailing dot. DNS names are
-lowercased and duplicates removed. Without TLS, SAN names are discarded.
-These rules apply to cryptcp and both EST enrollment endpoints. PFX selects
-the same templates with its `tls` and `fqdn` fields. DNS names are syntax-checked, not ownership-validated.
+Repeated SAN extensions or extension-request attributes and malformed SAN are
+refused. DNS names are ASCII labels of 1–63 letters, digits or hyphens, with
+no leading/trailing hyphen, up to 253 characters overall; no wildcards or
+trailing dot. They are lowercased and duplicates removed. Without TLS, SAN
+names are discarded. PFX selects the same templates with its `tlsServer`,
+`tlsClient` and `fqdn` fields. DNS names are syntax-checked, not
+ownership-validated.
 
 ## Public endpoints
 
@@ -84,10 +84,10 @@ the same templates with its `tls` and `fqdn` fields. DNS names are syntax-checke
 | `GET /<id>.crt`, `GET /<id>.crl` | CA certificate, CRL (published hourly and at once on a revocation, made when asked for with thisUpdate when it became due, valid for a week), as CA issuers and, when the CA issues with it, CRL distribution point of what the CA issues |
 | `POST /<id>/ocsp`, `GET /<id>/ocsp/<request>` | OCSP (RFC 6960) of what the CA issued, the OCSP URL of their AIA when the CA issues with it: good, revoked or, for anything else, unknown, with CertIDs of any hash OpenSSL has, GOST R 34.11-2012 included; signed by the OCSP responder of the CA, a certificate it issues at the first request for 90 days with OCSPSigning and id-pkix-ocsp-nocheck, thisUpdate now, valid for a week, nonce repeated; a signature on the request is ignored |
 | `GET /<id>/cert/<sha1>.crt` | a certificate the CA issued |
-| `POST <enroll>/certfnsh.asp` | issues a leaf certificate, as `cryptcp -createcert -ca <enroll>` posts |
-| `GET /.well-known/est/<id>/cacerts` | EST (RFC 7030): the CA and the CAs above it |
-| `POST /.well-known/est/<id>/simpleenroll`, `/simplereenroll` | EST: issues a leaf certificate; a CA that issues by link takes its issue token as the HTTP Basic password |
-| `POST <enroll>/pfx` | `{"name", "algo", "tls", "fqdn", "password"}`: a key of any algorithm, by default the CA's, generated and not retained by TUC, with a leaf certificate from the user or TLS template, in a password-protected PKCS#12 with the chain; GOST uses Kuznyechik and Streebog, other algorithms use AES-256 and SHA-256 |
+| `POST <enroll>[/tls-server][/tls-client][/justcert]/certfnsh.asp` | issues a leaf certificate, as `cryptcp -createcert -ca <enroll>[/tls-server][/tls-client][/justcert]` posts; the options in any order, each once |
+| `GET /.well-known/est/<label>/cacerts` | EST (RFC 7030): the CA and the CAs above it; the label is the CA id, optionally followed by `+tls-server` and `+tls-client` |
+| `POST /.well-known/est/<label>/simpleenroll`, `/simplereenroll` | EST: issues a leaf certificate of the template the label selects; a CA that issues by link takes its issue token as the HTTP Basic password |
+| `POST <enroll>/pfx` | `{"name", "algo", "tlsServer", "tlsClient", "fqdn", "password"}`: a key of any algorithm, by default the CA's, generated and not retained by TUC, with a leaf certificate from the template the TLS fields select, in a password-protected PKCS#12 with the chain; GOST uses Kuznyechik and Streebog, other algorithms use AES-256 and SHA-256 |
 | `POST /<id>/tsp` | time-stamp (RFC 3161) under the policy anyPolicy, signed by a time-stamping certificate the CA issues at the first request, of its algorithm, with its CRL and OCSP URLs |
 | `POST /<id>/revoke` | revokes the certificate that signed the word `revoke` |
 
@@ -122,8 +122,9 @@ At `<enroll>` TUC returns a signed CMC response containing the certificate
 and CA chain, subject to the mixed-algorithm rule above. At
 `<enroll>/justcert` it returns only the issued certificate; the page command
 uses `-silent` and requires the root to be trusted beforehand. Confirm trust
-only for the intended root. For TLS, add
-`-altname <host> -eku 1.3.6.1.5.5.7.3.1 -eku 1.3.6.1.5.5.7.3.2`.
+only for the intended root. For TLS, add `-altname <host>` and the options to
+the enroll address, for example `<enroll>/tls-server/tls-client`; `cryptcp`
+before 5.0.13820 has no `-eku`.
 
 ## Running
 
