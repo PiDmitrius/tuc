@@ -1,4 +1,4 @@
-"""Deployment and restore checks through the documented HTTPS endpoint."""
+"""Deployment and restore checks against the published TUC port."""
 import base64
 import hashlib
 import http.client
@@ -7,7 +7,6 @@ import os
 from pathlib import Path
 import re
 import secrets
-import ssl
 import subprocess
 import sys
 import time
@@ -15,11 +14,10 @@ import time
 state = Path("/state")
 state.mkdir(exist_ok=True)
 os.umask(0o077)
-context = ssl.create_default_context(cafile="/trust.pem")
 host = "ca.example.test"
 
-def request(method, path, data=None, headers=None, expected=200, plain=False):
-    connection = http.client.HTTPConnection(host, timeout=10) if plain else http.client.HTTPSConnection(host, context=context, timeout=10)
+def request(method, path, data=None, headers=None, expected=200):
+    connection = http.client.HTTPConnection(os.environ["TUC_ADDR"], timeout=10)
     if isinstance(data, dict):
         data = json.dumps(data).encode()
         headers = {"Content-Type": "application/json", **(headers or {})}
@@ -108,7 +106,7 @@ if mode == "wait":
                 raise
             time.sleep(.1)
     request("GET", "/readyz", expected=int(sys.argv[2]))
-    print("HTTPS liveness/readiness checked")
+    print("liveness/readiness checked")
 elif mode == "pre":
     root = api("/new", {"subject": "CN=Deployment Root", "algo": "ecdsa256"})
     inter = api("/" + root["id"] + "/new", {"token": root["admin"], "subject": "CN=Deployment Issuer", "algo": "gost256", "closed": True})
@@ -157,27 +155,10 @@ elif mode == "publication":
     for tail in (".crt", ".crl", "/ocsp"):
         assert "http://" + host + "/" + ident + tail in text
     assert "https://" + host not in text
-    for method, path in (("GET", "/"), ("GET", "/" + ident), ("POST", "/new"), ("GET", "/.well-known/est/" + ident + "/cacerts")):
-        connection = http.client.HTTPConnection(host, timeout=10)
-        connection.request(method, path)
-        response = connection.getresponse()
-        assert response.status == 308 and response.getheader("Location") == "https://" + host + path
-        response.read(); connection.close()
-    for role in ("root", "inter"):
-        path = "/" + info[role]["id"]
-        assert request("GET", path + ".crt", plain=True) == request("GET", path + ".crt")
-        assert request("GET", path + ".crl", plain=True) == request("GET", path + ".crl")
-    query = (state / "ocsp.req").read_bytes()
-    for method, path, data in (("POST", "/" + ident + "/ocsp", query), ("GET", "/" + ident + "/ocsp/" + base64.b64encode(query).decode(), None)):
-        reply = request(method, path, data, plain=True)
-        (state / "http.ocsp").write_bytes(reply)
-        openssl("ocsp", "-respin", str(state / "http.ocsp"), "-text", "-noverify")
-    reply = request("POST", "/" + ident + "/tsp", (state / "query.tsq").read_bytes(), {"Content-Type": "application/timestamp-query"}, plain=True)
-    (state / "http.tsr").write_bytes(reply)
-    openssl("ts", "-verify", "-in", str(state / "http.tsr"), "-queryfile", str(state / "query.tsq"), "-CAfile", str(state / "root.pem"), "-untrusted", str(state / "inter.pem"))
-    print("HTTP AIA/CRL/OCSP/TSP, certificate URLs and HTTPS redirects checked")
-elif mode == "public-id":
-    print(json.loads((state / "state.json").read_text())["inter"]["id"])
+    reply = request("GET", "/" + ident + "/ocsp/" + base64.b64encode((state / "ocsp.req").read_bytes()).decode())
+    (state / "get.ocsp").write_bytes(reply)
+    openssl("ocsp", "-respin", str(state / "get.ocsp"), "-text", "-noverify")
+    print("certificate URLs and OCSP by GET checked")
 elif mode == "writer":
     info = json.loads((state / "state.json").read_text())
     deadline = time.monotonic() + 30
@@ -195,40 +176,5 @@ elif mode == "writer-wait":
         if time.monotonic() > deadline:
             raise TimeoutError("writer did not start")
         time.sleep(.01)
-elif mode == "backend-denied":
-    import socket
-    try:
-        connection = socket.create_connection((sys.argv[2], 8080), timeout=2)
-    except OSError:
-        print("direct backend connection denied")
-    else:
-        connection.close()
-        raise AssertionError("outside client reached backend directly")
-elif mode == "outside-open":
-    api("/new", {"subject": "CN=Open Profile", "algo": "ecdsa256"})
-    print("open profile allows external CA creation")
-elif mode == "outside-closed":
-    ident = sys.argv[2]
-    for path in ("/", "/readyz", "/" + ident, "/.well-known/est/" + ident + "/cacerts"):
-        request("GET", path, headers={"X-Forwarded-For": sys.argv[3]}, expected=403)
-    for path in ("/new", "/" + ident + "/admin", "/" + ident + "/pfx", "/" + ident + "/revoke", "/.well-known/est/" + ident + "/simpleenroll", "/" + ident + "/ocsp/../admin", "/" + ident + "/tsp"):
-        request("POST", path, {}, expected=403)
-    for tail in (".crt", ".crl"):
-        request("GET", "/" + ident + tail)
-    query = sys.stdin.buffer.read()
-    reply = request("POST", "/" + ident + "/ocsp", query)
-    (state / "outside.ocsp").write_bytes(reply)
-    openssl("ocsp", "-respin", str(state / "outside.ocsp"), "-text", "-noverify")
-    from urllib.parse import quote
-    request("GET", "/" + ident + "/ocsp/" + quote(base64.b64encode(query).decode(), safe=""))
-    request("GET", "/", expected=308, plain=True)
-    for tail in (".crt", ".crl"):
-        request("GET", "/" + ident + tail, plain=True)
-    request("POST", "/" + ident + "/ocsp", query, plain=True)
-    tsquery = openssl("ts", "-query", "-digest", hashlib.sha256(b"public HTTP timestamp").hexdigest(), "-sha256", "-cert").stdout
-    response = request("POST", "/" + ident + "/tsp", tsquery, {"Content-Type": "application/timestamp-query"}, plain=True)
-    (state / "public.tsr").write_bytes(response)
-    assert b"Granted" in openssl("ts", "-reply", "-in", str(state / "public.tsr"), "-text").stdout
-    print("closed profile exposes CA certificates/CRL/OCSP; business endpoints and spoofed forwarded address denied")
 else:
     raise ValueError("unknown test phase")

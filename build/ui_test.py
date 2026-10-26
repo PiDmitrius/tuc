@@ -100,12 +100,12 @@ with sync_playwright() as p:
     issue_card.get_by_text("Обычный", exact=True).click()
     page.get_by_role("button", name="Скопировать команду").click()
     cmd = page.evaluate("window.copied")
-    assert re.search(r"TUC=\S+/[0-9A-F]{40}/[a-z2-7]{32}\n", cmd), cmd
+    assert re.search(r"TUC=\S+/[0-9A-F]{40}/[a-z2-7]{32} && \\\n", cmd), cmd
     tools.get_by_text("OpenSSL", exact=True).click()
     expect(page.locator("#os-seg")).to_be_hidden()
     page.get_by_role("button", name="Скопировать команду").click()
     cmd = page.evaluate("window.copied")
-    assert re.search(r"EST=http://tuc:[a-z2-7]{32}@\S+/\.well-known/est/[0-9A-F]{40}\n", cmd) and "-newkey ec" in cmd, cmd
+    assert re.search(r"EST=http://tuc:[a-z2-7]{32}@\S+/\.well-known/est/[0-9A-F]{40} && \\\n", cmd) and "-newkey ec" in cmd, cmd
     # A PFX made by the CA downloads under the name shown
     tools.get_by_text("PFX", exact=True).click()
     expect(page.locator("#copy-enroll")).to_be_hidden()
@@ -123,7 +123,7 @@ with sync_playwright() as p:
     page.locator("#imp-file").fill("old"); page.locator("#imp-cn").fill("Old One"); page.locator("#imp-pass").fill("it's")
     page.get_by_role("button", name="Скопировать команду импорта").click()
     cmd = page.evaluate("window.copied")
-    assert "NAME='old'\nPASS='it'\\''s'\n" in cmd, cmd
+    assert "NAME='old' && \\\nPASS='it'\\''s' && \\\n" in cmd, cmd
     password = page.locator("#pfx-password").input_value()
     assert re.fullmatch(r"TUC-\d{8}-\d{6}", page.locator("#pfx-name").input_value()) and len(password) == 12, password
     with page.expect_download() as d:
@@ -140,11 +140,11 @@ with sync_playwright() as p:
     assert page.locator("#pfx-password").input_value() != password
     page.get_by_role("button", name="Скопировать команду импорта").click()
     cmd = page.evaluate("window.copied")
-    assert "NAME='" + name + "'\nPASS='" + password + "'\n" in cmd and "-nocerts -nodes" in cmd, cmd
+    assert "NAME='" + name + "' && \\\nPASS='" + password + "' && \\\n" in cmd and "-nocerts -nodes" in cmd, cmd
     page.locator("#revoke .head").click()
     page.get_by_role("button", name="Скопировать команду отзыва").click()
     cmd = page.evaluate("window.copied")
-    assert "\nNAME='" + name + "'\nPASS='" + password + "'\n" in cmd, cmd
+    assert "\nNAME='" + name + "' && \\\nPASS='" + password + "' && \\\n" in cmd, cmd
     page.locator("#pfx-import").get_by_text("КриптоПро", exact=True).click()
     page.locator("#os3-seg").get_by_text("Linux", exact=True).click()
     page.get_by_role("button", name="Скопировать команду импорта").click()
@@ -157,7 +157,7 @@ with sync_playwright() as p:
     assert d.value.suggested_filename == "Test_User.pfx", d.value.suggested_filename
     page.get_by_role("button", name="Скопировать команду импорта").click()
     cmd = page.evaluate("window.copied")
-    assert "FILE='Test_User'\nNAME='Test User'\n" in cmd, cmd
+    assert "FILE='Test_User' && \\\nNAME='Test User' && \\\n" in cmd, cmd
     # The check and the revoke follow where the PFX is imported
     expect(page.locator("#revoke input[name=tool2][value=cryptopro]")).to_be_checked()
     expect(page.locator("#verify input[name=where][value=cryptopro]")).to_be_checked()

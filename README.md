@@ -215,8 +215,8 @@ Without `-secret`, the service starts sealed and does not read stdin.
 File-based startup keeps the master secret on the instance's disk.
 
 `-base` is the external address for pages and issuance. `-publish` sets the
-publication address embedded in certificates (AIA, CDP and OCSP); it defaults
-to `-base`. Existing certificates retain their embedded addresses. Use `tuc backup -db tuc.db <new-file>` for a
+publication address embedded in certificates (AIA, CDP and OCSP) and used by
+the commands on the page; it defaults to `-base`. Existing certificates retain their embedded addresses. Use `tuc backup -db tuc.db <new-file>` for a
 consistent SQLite snapshot (including WAL); retain the external secret separately. After restore, start
 sealed and deliver the original secret; existing keys and management links
 from that backup remain usable. Restoring an older backup restores its link

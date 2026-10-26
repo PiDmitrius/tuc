@@ -11,9 +11,7 @@ run=tuc-deploy-$(openssl rand -hex 6)
 work=$(mktemp -d)
 export TUC_IMAGE=$run TUC_HOST=ca.example.test TUC_UID=$(id -u) TUC_GID=$(id -g)
 export TUC_BASE=https://$TUC_HOST TUC_PUBLISH=http://$TUC_HOST
-export TUC_HTTP_BIND=127.0.0.1:0 TUC_HTTPS_BIND=127.0.0.1:0 TUC_TLS_DIR=$work/tls
-export TUC_BACKUP_VOLUME=$run-backups TUC_FRONT_NETWORK=$run-front
-export TUC_PROXY_CONFIG=Caddyfile.open
+export TUC_BIND=127.0.0.1: TUC_BACKUP_VOLUME=$run-backups
 old=$run-source new=$run-restored
 project=$old
 compose() { docker compose -p "$project" -f "$here/docker-compose.yml" "$@"; }
@@ -27,9 +25,8 @@ cleanup() {
         compose down --volumes --timeout 10 >/dev/null 2>&1
     done
     if [ -n "${writer:-}" ]; then kill "$writer" 2>/dev/null; wait "$writer" 2>/dev/null; fi
-    docker rm -f "$run-client" "$run-outsider" "$run-provider" >/dev/null 2>&1
+    docker rm -f "$run-client" "$run-provider" >/dev/null 2>&1
     docker volume rm "$TUC_BACKUP_VOLUME" >/dev/null 2>&1
-    docker network rm "$TUC_FRONT_NETWORK" >/dev/null 2>&1
     docker image rm "$run-tools" "$run-go" "$run" >/dev/null 2>&1
     rm -r "$work"
     exit "$status"
@@ -41,29 +38,14 @@ docker build -q -f "$here/build/Dockerfile" --build-context minipki="$MINIPKI" -
 docker build -q -f "$here/build/deploy.Dockerfile" --build-arg TOOL_BASE="$run-go" --build-arg TUC_IMAGE="$run" -t "$run-tools" "$here" >> "$out/build.log" 2>&1
 docker run --rm -v "$here/deploy:/docs:ro" "$run-tools" systemd-analyze verify /docs/systemd/tuc.service /docs/systemd/tuc-unseal.service > "$out/systemd-verify.log" 2>&1
 printf 'systemd unit syntax: ok\n'
-mkdir "$work/tls"
-docker run --rm --user "$TUC_UID:$TUC_GID" -v "$work/tls:/tls" "$run-tools" sh -ec '
-umask 077
-openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout /tls/transport-ca.key -out /tls/transport-ca.pem -subj /CN=DeploymentTransport -days 2 -addext basicConstraints=critical,CA:TRUE -addext keyUsage=critical,keyCertSign,cRLSign
-openssl req -new -newkey ec -pkeyopt ec_paramgen_curve:P-256 -nodes -keyout /tls/key.pem -out /tls/request.pem -subj /CN=ca.example.test
-printf "subjectAltName=DNS:ca.example.test\nextendedKeyUsage=serverAuth\nbasicConstraints=critical,CA:FALSE\nkeyUsage=critical,digitalSignature\nsubjectKeyIdentifier=hash\nauthorityKeyIdentifier=keyid,issuer\n" > /tls/ext
-openssl x509 -req -in /tls/request.pem -CA /tls/transport-ca.pem -CAkey /tls/transport-ca.key -CAcreateserial -out /tls/fullchain.pem -days 2 -extfile /tls/ext
-rm /tls/transport-ca.key /tls/request.pem /tls/ext /tls/transport-ca.srl' > "$out/tls-generation.log" 2>&1
-
-docker network create "$TUC_FRONT_NETWORK" >/dev/null
 docker volume create "$TUC_BACKUP_VOLUME" >/dev/null
-for role in client outsider; do
-    docker run -d --name "$run-$role" --network "$TUC_FRONT_NETWORK" --user "$TUC_UID:$TUC_GID" --read-only --cap-drop ALL --security-opt no-new-privileges --ulimit core=0 --tmpfs "/state:uid=$TUC_UID,gid=$TUC_GID,mode=0700" -v "$work/tls/transport-ca.pem:/trust.pem:ro" -v "$here/build:/tests:ro" "$run-tools" sleep infinity >/dev/null
-done
-trusted=$(docker inspect "$run-client" | jq -r '.[0].NetworkSettings.Networks[] .IPAddress')
-export TUC_TRUSTED_CIDRS=$trusted/32
-client() { docker exec "$run-client" python3 /tests/deploy_test.py "$@"; }
+docker run -d --name "$run-client" --network host --user "$TUC_UID:$TUC_GID" --read-only --cap-drop ALL --security-opt no-new-privileges --ulimit core=0 --tmpfs "/state:uid=$TUC_UID,gid=$TUC_GID,mode=0700" -v "$here/build:/tests:ro" "$run-tools" sleep infinity >/dev/null
+# TUC publishes a random loopback port, which a recreated container changes.
+client() { docker exec -e TUC_ADDR="$(compose port tuc 8080)" "$run-client" python3 /tests/deploy_test.py "$@"; }
 prepare() { compose run --rm --user 0 --cap-add CHOWN --cap-add FOWNER --entrypoint sh maintenance /tools/prepare.sh "$TUC_UID" "$TUC_GID"; }
 prepare
-compose up -d tuc proxy
+compose up -d tuc
 client wait 503
-backend=$(docker inspect "$(compose ps -q tuc)" | jq -r '.[0].NetworkSettings.Networks | to_entries[] | select(.key | endswith("_backend")) | .value.IPAddress')
-docker exec "$run-outsider" python3 /tests/deploy_test.py backend-denied "$backend"
 # The same secret stays only in the separate provider process across restores.
 docker run -d --name "$run-provider" --network none --user "$TUC_UID:$TUC_GID" --read-only --cap-drop ALL --security-opt no-new-privileges --ulimit core=0 --memory 128m --memory-swap 128m --tmpfs "/run:uid=$TUC_UID,gid=$TUC_GID,mode=0700" -v "$here/build/deploy-provider.py:/provider.py:ro" "$run-tools" python3 /provider.py hold >/dev/null
 docker run --rm --entrypoint tuc "$run" keygen | docker exec -i "$run-provider" python3 /provider.py put >/dev/null
@@ -72,7 +54,6 @@ provider | compose exec -T tuc tuc unseal -initialize
 client wait 200
 client pre
 client publication
-docker exec "$run-outsider" python3 /tests/deploy_test.py outside-open
 client writer > "$out/writer.log" 2>&1 &
 writer=$!
 client writer-wait
@@ -91,25 +72,18 @@ if docker exec "$run-tools-missing-provider" true 2>/dev/null | compose exec -T 
 client wait 503
 provider | compose exec -T tuc tuc unseal
 client wait 200
-# Exercise the closed profile from a different real peer address.
-export TUC_PROXY_CONFIG=Caddyfile.closed
-compose up -d --force-recreate proxy
-client wait 200
-client publication
-ident=$(client public-id)
-docker exec "$run-client" cat /state/ocsp.req | docker exec -i "$run-outsider" python3 /tests/deploy_test.py outside-closed "$ident" "$trusted"
 compose stop tuc
 compose up -d --no-deps --force-recreate tuc
 client wait 503
 provider | compose exec -T tuc tuc unseal
 client wait 200
-compose stop tuc proxy
+compose stop tuc
 
 started=$(date +%s%N)
 project=$new
 prepare
 compose run --rm -v "$work/export.db:/input.db:ro" maintenance backup -db /input.db /data/tuc.db | tee "$out/restore.log"
-compose up -d tuc proxy
+compose up -d tuc
 client wait 503
 provider | compose exec -T tuc tuc unseal
 client wait 200

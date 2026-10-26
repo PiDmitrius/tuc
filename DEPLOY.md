@@ -6,29 +6,35 @@ enrollment links; `-publish` supplies AIA, CDP and OCSP. Preserve both addresses
 restart, update and restore. Changing configuration does not rewrite URLs in
 certificates already issued.
 
-The examples use `-base https://tuc.example` for pages, commands, EST,
-issuance and management, and `-publish http://tuc.example` for AIA caIssuers,
-CDP and OCSP addresses embedded in certificates. Without `-publish`, they use
-`-base`. Plain HTTP publication lets certificate retrieval and revocation checks
-run without first validating the proxy's TLS certificate; certificates, CRLs and
-OCSP responses carry their own signatures. TSP accepts requests on both addresses.
-The proxy serves only certificates, CRLs, OCSP and TSP over HTTP and redirects
-all other HTTP requests to HTTPS. Existing certificates retain their embedded
-addresses when either setting changes. Use your permanent DNS
-name and provision a valid TLS certificate independently of the TUC instance
-being recovered. Distribute the TLS issuer's trust as required by your clients.
-Test their AIA/CDP/OCSP access at the chosen URLs before issuing working
-certificates.
+The examples use `-base https://tuc.example` for pages, EST, issuance and
+management, and `-publish http://tuc.example` for AIA caIssuers, CDP and OCSP
+addresses embedded in certificates and for the commands on the page. Without
+`-publish`, they use `-base`. Plain HTTP publication lets certificate retrieval
+and revocation checks run without first validating a TLS certificate;
+certificates, CRLs and OCSP responses carry their own signatures. `cryptcp -ca`
+validates TLS only against the CryptoPro root store, which lacks common web
+roots, so its enrollment and the revocation commands use HTTP too; issue tokens
+in their URLs travel unencrypted. TUC serves every endpoint on both schemes,
+without redirects. Existing certificates retain their embedded addresses when
+either setting changes. Use your permanent DNS name. Test AIA/CDP/OCSP access
+of your clients at the chosen URLs before issuing working certificates.
 
 ## Access boundary
 
-The [open HTTPS proxy](deploy/Caddyfile.open) forwards all TUC endpoints. Public CA
-creation and open issuance are intentional; CA tokens still protect their
-respective roles. In the [closed HTTPS proxy](deploy/Caddyfile.closed), only trusted
-peer addresses can reach pages, creation, issuance, PFX, EST, revocation,
-administration, time-stamps and health endpoints.
+TUC listens on plain HTTP port 8080 and relies on your reverse proxy for TLS.
+Serve the hostname on both HTTP and HTTPS without a redirect, for example with
+Caddy:
 
-The closed HTTPS profile's outside allowlist is:
+```
+tuc.example, http://tuc.example {
+	reverse_proxy 127.0.0.1:8080
+}
+```
+
+With open access, public CA creation and open issuance are intentional; CA
+tokens still protect their respective roles. With closed access, only trusted
+networks reach pages, creation, issuance, PFX, EST, revocation, administration
+and health endpoints; outside callers get only:
 
 | Method | Path | Purpose |
 |---|---|---|
@@ -36,9 +42,22 @@ The closed HTTPS profile's outside allowlist is:
 | GET/HEAD | `/<id>.crl` | Revocation lists |
 | POST | `/<id>/ocsp` | OCSP requests |
 | GET | `/<id>/ocsp/<request>` | OCSP requests encoded in the URL |
+| POST | `/<id>/tsp` | Time-stamps |
 
-HTTP additionally exposes `POST /<id>/tsp` to all callers in both profiles.
-All other HTTP paths redirect to HTTPS, where the selected profile applies.
+```
+tuc.example, http://tuc.example {
+	@outside {
+		not remote_ip 192.0.2.0/24
+		not path_regexp ^/[0-9A-Fa-f]{40}(\.(crt|crl)|/ocsp(/.*)?|/tsp)$
+	}
+	respond @outside 403
+	reverse_proxy 127.0.0.1:8080
+}
+```
+
+Replace the documentation network with your trusted source networks and check
+the actual peer address reaching the proxy; `remote_ip` does not trust
+client-supplied forwarded headers.
 
 Issued-certificate downloads and EST cacerts stay inside this default boundary;
 add a deliberate allowlist rule if an outside consumer requires them. Network
@@ -55,11 +74,9 @@ part of the database: restoring an older backup also restores its generations
 and can reactivate the links that were valid at that backup. After such a
 restore, replace both links for any affected CA before reopening access.
 
-Only the proxy publishes ports. Do not publish TUC's 8080 or its Unix socket.
-Check the actual peer address reaching the proxy on your network. The sample
-uses `remote_ip`, not a client-supplied forwarded header. An additional proxy or
-NAT needs a separately verified source-identity policy. TUC has no load limits
-in this version; connection, request-size and rate limits belong on the proxy.
+Publish TUC's port 8080 only to the proxy (`TUC_BIND`, by default
+`127.0.0.1:8080`) and never its Unix socket. TUC has no load limits in this
+version; connection, request-size and rate limits belong on the proxy.
 
 ## Docker
 
@@ -84,33 +101,21 @@ export COMPOSE_PROJECT_NAME=tuc
 export TUC_TAG=v1.0.0 TUC_HOST=tuc.example
 export TUC_BASE=https://tuc.example TUC_PUBLISH=http://tuc.example
 export TUC_UID=10001 TUC_GID=10001
-export TUC_TLS_DIR=/srv/tuc/tls TUC_HTTPS_BIND=0.0.0.0:443 TUC_HTTP_BIND=0.0.0.0:80
-export TUC_FRONT_NETWORK=tuc-edge TUC_BACKUP_VOLUME=tuc-backups
-export TUC_PROXY_CONFIG=Caddyfile.closed
-export TUC_TRUSTED_CIDRS='192.0.2.0/24'
+export TUC_BIND=127.0.0.1:8080 TUC_BACKUP_VOLUME=tuc-backups
 dc() { docker compose "$@"; }
 ```
 
-Replace the documentation network with your actual trusted source networks.
-For open access use `TUC_PROXY_CONFIG=Caddyfile.open`. Record resolved image IDs
-and configuration; use immutable image references for a reproducible release.
-The proxy example is tested with `caddy:2.11.4-alpine` and the
-`NET_BIND_SERVICE` capability set in Compose.
-
-Provision `fullchain.pem` and `key.pem` in `TUC_TLS_DIR`, readable by `TUC_UID`,
-with a private directory and mode 0600 on the key. The mount is read-only.
-Certificate renewal must update those files and recreate/reload the proxy;
-verify TLS again afterwards. The example does not obtain certificates for you.
+Record resolved image IDs and configuration; use immutable image references
+for a reproducible release.
 
 On a fresh deployment:
 
 ```sh
-docker network create "$TUC_FRONT_NETWORK"
 docker volume create "$TUC_BACKUP_VOLUME"
 dc run --rm --user 0 --cap-add CHOWN --cap-add FOWNER --entrypoint sh maintenance \
   /tools/prepare.sh "$TUC_UID" "$TUC_GID"
-dc pull tuc proxy
-dc up -d tuc proxy
+dc pull tuc
+dc up -d tuc
 ```
 
 `prepare.sh` initializes empty named volumes as private directories. It refuses to
@@ -155,11 +160,11 @@ provider supervisor when intentionally stopping TUC; arrange fresh delivery for
 every subsequent start. Do not put a failing provider in a startup hook that
 restarts the otherwise live HTTP service.
 
-From a trusted monitoring source, using your normal TLS trust bundle:
+From a trusted monitoring source:
 
 ```sh
-curl --cacert /path/to/tls-issuer.pem -fsS "https://$TUC_HOST/livez"
-curl --cacert /path/to/tls-issuer.pem -fsS "https://$TUC_HOST/readyz"
+curl -fsS "https://$TUC_HOST/livez"
+curl -fsS "https://$TUC_HOST/readyz"
 ```
 
 Liveness is 200 while HTTP works; readiness is 503 while sealed and 200 after
@@ -169,7 +174,7 @@ sealed. Saved valid CRLs can remain available then, but expire normally.
 ## Stop, restart, logs and update
 
 ```sh
-dc logs --tail=100 tuc proxy
+dc logs --tail=100 tuc
 dc stop tuc
 # Start and deliver the same secret again:
 dc up -d tuc
@@ -177,15 +182,18 @@ dc up -d tuc
 
 The sample rotates local Docker logs (three files of 10 MiB per service).
 TUC logs transitions and requests, redacting issue-token path segments. Treat
-administrative/enrollment URLs as capabilities. The supplied proxy files do not
-enable access logs; review error logs too before exporting them. Do not enable
-request-body, authorization-header or full capability-URL logging.
+administrative/enrollment URLs as capabilities. Keep proxy access logs off or
+redact capability URLs in them; review error logs too before exporting them. Do
+not enable request-body or authorization-header logging.
 
 Before updating, make and verify a backup and record the old image reference.
-Select the tested new version in `TUC_TAG`, keeping hostname, volumes, uid and
-secret, then run `dc pull tuc` and `dc up -d --no-deps --force-recreate tuc`. Unseal and verify
+Check out the same tag of this repository, select the tested new version in
+`TUC_TAG`, keeping hostname, volumes, uid and secret, then run `dc pull tuc` and
+`dc up -d --no-deps --force-recreate --remove-orphans tuc`; `--remove-orphans`
+removes containers of services the Compose file no longer defines. Keep the
+reverse proxy pointed at `TUC_BIND`. Unseal and verify
 readiness, old administration/enrollment links, chain validation and revocation.
-Update/recreate the proxy separately. `dc stop` preserves data; **do not use
+`dc stop` preserves data; **do not use
 `down --volumes`** on a deployment whose data must survive.
 
 Keep the preceding binary/configuration for rollback. Do not silently restore
@@ -222,9 +230,9 @@ while ignoring its WAL, nor include runtime socket files as persistent state.
 Before restore, compare the archive SHA-256 with the independently retained
 checksum and stop on a mismatch.
 
-For recovery, stop the old provider supervisor and old TUC/proxy before handing
+For recovery, stop the old provider supervisor and old TUC before handing
 the public address to a replacement. Use a **new** Compose project/data volume,
-the same TLS hostname/configuration and the original secret. For example:
+the same hostname/configuration and the original secret. For example:
 
 ```sh
 export COMPOSE_PROJECT_NAME=tuc-restored
@@ -234,7 +242,7 @@ dc run --rm --user 0 --cap-add CHOWN --cap-add FOWNER --entrypoint sh maintenanc
   /tools/prepare.sh "$TUC_UID" "$TUC_GID"
 dc run --rm -v "$ARCHIVE:/input.db:ro" maintenance \
   backup -db /input.db /data/tuc.db
-dc up -d tuc proxy
+dc up -d tuc
 # Deliver the ORIGINAL secret, without -initialize:
 secret-provider | dc exec -T tuc tuc unseal
 ```
@@ -263,10 +271,9 @@ link before replacing it; do not overwrite unrelated paths.
 
 Create `/etc/tuc/tuc.env` containing `TUC_BASE=https://tuc.example`
 and `TUC_PUBLISH=http://tuc.example` on separate lines.
-The unit binds the backend to `127.0.0.1:8080`; run the HTTP/HTTPS proxy with the same
-provided Caddyfile, `TUC_HOST` and `TUC_UPSTREAM=127.0.0.1:8080`. Configure its
-certificate permissions and service lifecycle separately. Restrict other local
-accounts and do not expose backend port 8080 through a firewall or port forward.
+The unit binds TUC to `127.0.0.1:8080`; point your reverse proxy there as in
+[Access boundary](#access-boundary). Restrict other local accounts and do not
+expose port 8080 through a firewall or port forward.
 
 ```sh
 systemd-analyze verify /etc/systemd/system/tuc.service /etc/systemd/system/tuc-unseal.service
@@ -315,12 +322,11 @@ mkdir /path/to/new-empty-results
 DEPLOY_LOG_DIR=/path/to/new-empty-results build/deploy.sh
 ```
 
-The check uses isolated names, unprivileged service users, a private backend,
-a fixture TLS issuer with certificate verification enabled, and a memory-only
-external provider. It exercises both access profiles, manual/operator delivery,
+The check uses isolated names, unprivileged service users, a loopback-only
+port and a memory-only external provider. It exercises manual/operator delivery,
 provider failure and later automatic delivery, concurrent issuance during live
 backup, archive export, restart/recreation, clean restore and old capabilities,
 CA/service keys, mixed ECDSA/GOST chains and revocation. It checks unit syntax
 inside the tool container. It saves logs/checksums/recovery timings and removes
-its containers, networks, volumes and temporary TLS keys. No public DNS, deployed
+its containers, networks and volumes. No public DNS, deployed
 instance or native host service is changed.
