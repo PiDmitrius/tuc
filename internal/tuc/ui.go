@@ -462,7 +462,7 @@ function refresh() {
     $("#import-note").textContent = imp === "openssl" ? (ca.gostChain || (pfxAlg && gost(pfxAlg)) ? "Нужен OpenSSL с gost-engine." : !pfxAlg ? "Для ключа ГОСТ нужен OpenSSL с gost-engine." : "Нужен openssl.") + " Сертификат с цепочкой — в $NAME.crt, ключ без пароля — в $NAME.key." : importNotes[os];
   }
   for (const s of $$("[data-pfx]")) s.textContent = quote(pf[s.dataset.pfx], s.hasAttribute("data-ps"));
-  for (const s of $$("[data-pfx-set]")) s.textContent = known ? "NAME=" + quote(pf.name) + "\nPASS=" + quote(pf.pass) : "NAME=${NAME:-}\nPASS=${PASS:-}";
+  for (const s of $$("[data-pfx-set]")) s.textContent = known ? "NAME=" + quote(pf.name) + " && \\\nPASS=" + quote(pf.pass) : "NAME=${NAME:-} && \\\nPASS=${PASS:-}";
   // Verify: where the certificate is
   const place = value("where");
   $("#os4-seg").classList.toggle("hidden", place !== "cryptopro");
