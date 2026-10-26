@@ -95,7 +95,7 @@ button:focus-visible,a:focus-visible,input:focus-visible,select:focus-visible,.c
 .head:focus-visible{outline:2px solid var(--accent);outline-offset:-2px}
 label.field{display:block;margin:8px 0} label.field span{display:block;color:var(--text2);margin-bottom:2px}
 .row label.field{flex:1 1 200px;margin:0}
-input[type=text],input[type=number],select{width:100%;font:inherit;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)}
+input[type=text],input[type=number],select,textarea{width:100%;font:inherit;padding:6px 8px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text)}
 .seg{display:inline-flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;max-width:100%}
 .seg label{padding:3px 10px;cursor:pointer;border-left:1px solid var(--border);white-space:nowrap}
 .seg label:first-child{border-left:none}
@@ -105,7 +105,7 @@ input[type=text],input[type=number],select{width:100%;font:inherit;padding:6px 8
 .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 pre{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;white-space:pre-wrap;word-break:break-all;margin-top:10px}
 /* command variants share one place as high as the highest of them */
-.cmds{display:grid;margin-top:10px} .cmds>pre{grid-area:1/1;margin:0} .cmds>.off{visibility:hidden} .cmds>.out{display:none}
+.cmds{display:grid;margin-top:10px} .cmds>pre{grid-area:1/1;margin:0;max-height:20em;overflow:auto} .cmds>.off{visibility:hidden} .cmds>.out{display:none}
 .note{color:var(--text2);font-size:12px} p.note{min-height:1.5em;margin-top:6px}
 .status{min-height:1.2em} .status.error{color:var(--red)} .status.ok{color:var(--green)}
 .banner{border-radius:8px;padding:12px 16px;margin-bottom:16px;border:1px solid}
@@ -279,6 +279,7 @@ const when = s => s ? s.replace("T", " ").replace(/Z$/, " UTC").replace(/^(\d+)-
 <p id="way-note"></p>
 <div class="controls" style="margin-top:8px">
 <span class="seg" role="radiogroup" aria-label="Способ выпуска"><label><input type="radio" name="tool" value="pfx"> PFX</label><label><input type="radio" name="tool" value="openssl"> OpenSSL</label><label><input type="radio" name="tool" value="cryptopro"> КриптоПро</label></span>
+<span class="seg" role="radiogroup" aria-label="Куда" id="dest-seg"><label><input type="radio" name="dest" value="browser"> Браузер</label><label><input type="radio" name="dest" value="openssl"> OpenSSL</label><label><input type="radio" name="dest" value="cryptopro"> КриптоПро</label></span>
 <span class="seg" role="radiogroup" aria-label="Операционная система" id="os-seg">{{range .Commands}}{{if eq .Tool "cryptopro"}}<label><input type="radio" name="os" value="{{.ID}}"> {{.Title}}</label>{{end}}{{end}}</span>
 <span class="seg" role="group" aria-label="Назначение"><label><input type="checkbox" id="tls-server"> TLS-сервер</label><label><input type="checkbox" id="tls-client"> TLS-клиент</label></span>
 <span class="seg" role="radiogroup" aria-label="Ответ УЦ" id="response-seg"><label><input type="radio" name="response" value="chain" checked> С цепочкой</label><label><input type="radio" name="response" value="cert"> Без цепочки</label></span>
@@ -287,16 +288,23 @@ const when = s => s ? s.replace("T", " ").replace(/Z$/, " UTC").replace(/^(\d+)-
 <div class="row hidden" id="pfx-fields"><label class="field"><span>Имя сертификата (CN)</span><input type="text" id="pfx-name" autocomplete="off" aria-describedby="enroll-status"></label><label class="field"><span>Алгоритм ключа</span><select id="pfx-algo">{{range .Algos}}<option value="{{.}}"{{if eq . $.Alg}} selected{{end}}>{{.Long}}</option>{{end}}</select></label><label class="field"><span>Пароль PFX</span><input type="text" id="pfx-password" autocomplete="off" aria-describedby="enroll-status"></label></div>
 <div class="cmds" id="enroll-cmds">{{range $os := .Commands}}{{range .Enroll}}<pre data-os="{{$os.ID}}" data-tool="{{$os.Tool}}" data-purpose="{{.Purpose}}" data-response="{{.Response}}" class="enroll off" inert>{{.Script}}</pre>
 {{end}}{{end}}</div>
+<div class="cmds" id="pfx-cmds">{{range .Commands}}{{if .PFX}}<pre data-os="{{.ID}}" data-tool="{{.Tool}}" class="pfxcmd off" inert>{{.PFX}}</pre>
+{{end}}{{end}}</div>
 <p class="note" id="enroll-note"></p>
-<div class="row"><button class="primary" id="copy-enroll">Скопировать команду</button><button class="primary hidden" id="get-pfx">Выпустить и скачать PFX</button><span class="status" id="enroll-status" role="status"></span></div>
-<div class="row hidden" id="pfx-import-open"><button id="open-import">Импорт имеющегося PFX</button></div>
-<div class="hidden" id="pfx-import"><p style="margin-top:12px">Импорт PFX — в каталоге с файлом. <span id="pfx-pass-note"></span></p>
-<div class="row"><label class="field"><span>Файл без .pfx</span><input type="text" id="imp-file" autocomplete="off"></label><label class="field"><span>CN — для КриптоПро</span><input type="text" id="imp-cn" autocomplete="off"></label><label class="field"><span>Пароль PFX</span><input type="text" id="imp-pass" autocomplete="off"></label></div>
+<div class="row"><button class="primary" id="copy-enroll">Скопировать команду</button><button class="primary hidden" id="get-pfx">Выпустить PFX</button><span class="status" id="enroll-status" role="status"></span></div>
+<div class="hidden" id="pfx-result"><label class="field"><span>PFX (base64)</span><textarea readonly rows="3" id="pfx-b64"></textarea></label>
+<label class="field"><span>Пароль PFX</span><input type="text" readonly id="pfx-pass-out"></label>
+<div class="row"><button id="copy-b64">Скопировать base64</button><button id="copy-pass">Скопировать пароль</button><a class="button" id="pfx-file">Скачать файл</a></div>
+<p class="note">После перезагрузки страницы PFX и пароль исчезнут.</p></div>
+<div class="hidden" id="pfx-import"><p style="margin-top:12px" id="imp-title"></p>
+<div id="imp-fields"><label class="field"><span>PFX (base64)</span><textarea rows="3" id="imp-b64" autocomplete="off"></textarea></label>
+<label class="field"><span>Пароль PFX</span><input type="text" id="imp-pass" autocomplete="off"></label></div>
 <div class="controls" style="margin-top:8px"><span class="seg" role="radiogroup" aria-label="Импорт в"><label><input type="radio" name="imp" value="openssl"> OpenSSL</label><label><input type="radio" name="imp" value="cryptopro"> КриптоПро</label></span><span class="seg" role="radiogroup" aria-label="Операционная система" id="os3-seg">{{range .Commands}}{{if eq .Tool "cryptopro"}}<label><input type="radio" name="os3" value="{{.ID}}"> {{.Title}}</label>{{end}}{{end}}</span></div>
 <div class="cmds">{{range .Commands}}{{if .Import}}<pre data-os="{{.ID}}" data-tool="{{.Tool}}" class="import off" inert>{{.Import}}</pre>
 {{end}}{{end}}</div>
 <p class="note" id="import-note"></p>
 <div class="row"><button id="copy-import">Скопировать команду импорта</button></div></div>
+<div class="row hidden" id="pfx-import-open"><button id="open-import">Импорт имеющегося PFX</button></div>
 </div>
 <p class="hidden" id="closed-note">Для выпуска получите ссылку у владельца УЦ. Отозвать свой сертификат можно ниже без ссылки.</p>
 </div></div>
@@ -348,6 +356,8 @@ const when = s => s ? s.replace("T", " ").replace(/Z$/, " UTC").replace(/^(\d+)-
 <div class="item" id="revoke"><div class="head"><span class="name">Отозвать свой сертификат</span></div>
 <div class="body">
 <div class="controls"><span class="seg" role="radiogroup" aria-label="Где ключ"><label><input type="radio" name="tool2" value="pfx"> В PFX</label><label><input type="radio" name="tool2" value="openssl"> В файлах OpenSSL</label><label><input type="radio" name="tool2" value="cryptopro"> В КриптоПро</label></span><span class="seg" role="radiogroup" aria-label="Операционная система" id="os2-seg">{{range .Commands}}{{if eq .Tool "cryptopro"}}<label><input type="radio" name="os2" value="{{.ID}}"> {{.Title}}</label>{{end}}{{end}}</span></div>
+<div class="hidden" id="rev-pfx"><label class="field"><span>PFX (base64)</span><textarea rows="3" id="rev-b64" autocomplete="off"></textarea></label>
+<label class="field"><span>Пароль PFX</span><input type="text" id="rev-pass" autocomplete="off"></label></div>
 <p class="note" id="revoke-note" style="margin-top:6px"></p>
 <div class="cmds">{{range .Commands}}<pre data-os="{{.ID}}" data-tool="{{.Tool}}" class="revoke off" inert>{{.Revoke}}</pre>
 {{end}}</div>
@@ -408,17 +418,29 @@ const gost = alg => alg.startsWith("gost");
 const notes = {linux: "Нужен КриптоПро CSP. Ключ без пароля.", macos: "Нужен КриптоПро CSP. Ключ без пароля.",
   windows: "Нужен КриптоПро CSP. Для ключа используйте пустой пароль.",
   openssl: (ca.gostChain ? "Нужны curl и OpenSSL с gost-engine." : "Нужны openssl и curl.") + " Сертификат с цепочкой — в $NAME.crt, ключ без пароля — в $NAME.key.", pfx: ""};
-const last = " В том же терминале отзовётся последний выпущенный сертификат, в другом сначала задайте NAME нужного сертификата.";
-const revokeNotes = {cryptopro: "Нужен КриптоПро CSP." + last, openssl: "В каталоге с $NAME.crt и $NAME.key." + last,
-  pfx: "В каталоге с файлом PFX. Для PFX, скачанного не на этой странице, задайте NAME — имя файла без .pfx — и PASS — его пароль. Для ключа ГОСТ нужен OpenSSL с gost-engine."};
+const last = v => " В том же терминале отзовётся последний выпущенный сертификат, в другом сначала задайте " + v + " нужного сертификата.";
+const revokeNotes = {cryptopro: "Нужен КриптоПро CSP." + last("SHA1"), openssl: "В каталоге с $NAME.crt и $NAME.key." + last("NAME"),
+  pfx: "Нужен openssl, для ключа ГОСТ — с gost-engine."};
 const importNotes = {linux: "Нужен КриптоПро CSP. Ключ без пароля; установку корня в доверенные подтвердите.", macos: "Нужен КриптоПро CSP. Ключ без пароля; установку корня в доверенные подтвердите.",
   windows: "Нужен КриптоПро CSP. Используйте пустой пароль ключа; подтвердите установку корня в доверенные."};
 // EST URL with the issue token, if any, as the HTTP Basic password
 const est = () => { const u = new URL(ca.est), t = enroll.slice(ca.url.length + 1); if (t) { u.username = "tuc"; u.password = t; } return u.href; };
-// The PFX downloaded last: the import and revoke commands name its file and password
-// The PFX to import: the one downloaded last or one the fields name
-let importing = false, pfxAlg = "";
-const pfxFile = () => ({name: $("#imp-file").value.trim(), cn: $("#imp-cn").value.trim(), pass: $("#imp-pass").value});
+// The PFX issued last on the page fills the import and revoke fields; its
+// OpenSSL files are named as the PFX, those of another at the import.
+// importing shows the install block: of the PFX issued last, or with the
+// fields of an existing one when manual
+let importing = false, manual = false, pfxAlg = "", pfxURL = "", pfxName = "";
+// fileName names files as the server names a PFX
+const fileName = name => name.replace(/[^\p{L}\p{N}._-]+/gu, "_");
+const b64 = el => el.value.replace(/\s+/g, "");
+// fieldValues are the fields the commands take: the PFX to issue, to import and to revoke by
+function fieldValues() {
+  const u = use(), name = $("#pfx-name").value.trim(), pass = $("#pfx-password").value;
+  const json = JSON.stringify({name, algo: $("#pfx-algo").value, tlsServer: u.server, tlsClient: u.client, fqdn: u.tls ? u.fqdn : "", password: pass});
+  return {new: {name: fileName(name), pass, json, json64: btoa(String.fromCharCode(...new TextEncoder().encode(json)))},
+    pfx: {name: manual || !pfxName ? "TUC-" + stamp() : pfxName, pass: $("#imp-pass").value, b64: b64($("#imp-b64"))},
+    rev: {pass: $("#rev-pass").value, b64: b64($("#rev-b64"))}};
+}
 const quote = (v, ps) => ps ? "'" + v.replace(/'/g, "''") + "'" : "'" + v.replace(/'/g, "'\\''") + "'";
 const value = name => $("input[name=" + name + "]:checked").value;
 // The tool, the system and the import target are remembered; a choice in the
@@ -429,6 +451,12 @@ function pick(name, value) {
   // the check and the revoke start where the issue, or the import of a PFX, puts the certificate
   if (name === "tool" || name === "imp") for (const r of $$("input[name=where]")) r.checked = r.value === (value === "cryptopro" ? "cryptopro" : "openssl");
   if (name === "imp") for (const r of $$("input[name=tool2]")) r.checked = r.value === (value === "cryptopro" ? "cryptopro" : "pfx");
+  // a PFX installed by a command is checked and revoked where it is installed
+  if (name === "dest" || name === "tool" && value === "pfx") {
+    const d = $("input[name=dest]:checked").value;
+    for (const r of $$("input[name=tool2]")) r.checked = r.value === (d === "browser" ? "pfx" : d);
+    for (const r of $$("input[name=where]")) r.checked = r.value === (d === "cryptopro" ? "cryptopro" : "openssl");
+  }
   refresh();
 }
 const shown = sel => $$(sel).find(p => !p.classList.contains("off"));
@@ -443,14 +471,19 @@ function use() {
 }
 function refresh() {
   const tool = value("tool"), os = value("os"), pfx = tool === "pfx", cp = tool === "cryptopro";
+  const dest = value("dest"), install = pfx && dest !== "browser";
   const response = cp ? value("response") : "chain", id = cp ? os : tool;
   const {server, client, tls, fqdn, purpose} = use();
   $("#issue-meta").textContent = !issuing ? "по ссылке" : {pfx: "PFX", openssl: "OpenSSL", cryptopro: "КриптоПро"}[tool] +
     (server && client ? " · TLS-сервер и клиент" : server ? " · TLS-сервер" : client ? " · TLS-клиент" : "");
-  for (const [sel, on] of [["#os-seg", cp], ["#response-seg", cp], ["#pfx-fields", pfx], ["#copy-enroll", !pfx], ["#get-pfx", pfx], ["#enroll-cmds", !pfx]]) $(sel).classList.toggle("hidden", !on);
-  $("#way-note").textContent = pfx ? "Ключ создаёт УЦ и не хранит." : "Выполните в терминале.";
+  for (const [sel, on] of [["#os-seg", cp || install && dest === "cryptopro"], ["#dest-seg", pfx], ["#response-seg", cp], ["#pfx-fields", pfx],
+    ["#copy-enroll", !pfx || install], ["#get-pfx", pfx && !install], ["#enroll-cmds", !pfx], ["#pfx-cmds", install], ["#pfx-result", pfx && !install && pfxURL]]) $(sel).classList.toggle("hidden", !on);
+  $("#way-note").textContent = pfx ? "Ключ создаёт УЦ и не хранит." + (install ? " Выполните в терминале." : "") : "Выполните в терминале.";
   for (const p of $$("pre.enroll")) show(p, tool, !pfx && p.dataset.os === id && p.dataset.purpose === purpose && p.dataset.response === response);
-  $("#enroll-note").textContent = notes[id] + (response === "cert" ? " Корень не устанавливается: он должен быть уже в доверенных." : "");
+  for (const p of $$("pre.pfxcmd")) show(p, dest, install && p.dataset.os === (dest === "cryptopro" ? os : "openssl"));
+  const opensslPFX = (ca.gostChain || gost($("#pfx-algo").value) ? "Нужны curl и OpenSSL с gost-engine." : "Нужны openssl и curl.") + " Сертификат с цепочкой — в $NAME.crt, ключ без пароля — в $NAME.key.";
+  $("#enroll-note").textContent = (install ? (dest === "openssl" ? opensslPFX : importNotes[os]) : pfx ? "" : notes[id] + (response === "cert" ? " Корень не устанавливается: он должен быть уже в доверенных." : "")) +
+    ((!pfx || install) && enroll.length > ca.url.length ? " Команда содержит ссылку выпуска." : "");
   $("#fqdn-field").classList.toggle("hidden", !tls);
   $("#fqdn-label").textContent = server ? "DNS-имя" : "DNS-имя (необязательно)";
   // a CN of a TLS PFX starts with the DNS name if it fits in 64 characters
@@ -458,19 +491,22 @@ function refresh() {
   if (pfx && !nameEdited) $("#pfx-name").value = tls && fqdnValid(fqdn) && fqdn.length + 1 + auto.length <= 64 ? fqdn + "-" + auto : auto;
   for (const s of $$("[data-fqdn]")) s.textContent = fqdn || "<FQDN>";
   for (const s of $$("[data-tuc]")) s.textContent = ca.pub + enroll.slice(ca.url.length);
+  for (const s of $$("[data-tucs]")) s.textContent = enroll;
+  for (const s of $$("[data-rev]")) s.textContent = ca.pub;
+  const fv = fieldValues();
+  for (const s of $$("[data-f]")) { const [g, k] = s.dataset.f.split("."); s.textContent = quote(fv[g][k], s.hasAttribute("data-ps")); }
   for (const s of $$("[data-est]")) s.textContent = est();
   // Import of the PFX downloaded last
   const imp = value("imp"), impID = imp === "cryptopro" ? os : "openssl";
   $("#pfx-import").classList.toggle("hidden", !pfx || !importing);
-  $("#pfx-import-open").classList.toggle("hidden", !pfx || importing);
+  $("#pfx-import-open").classList.toggle("hidden", !pfx || manual);
+  $("#imp-fields").classList.toggle("hidden", !manual);
+  $("#imp-title").textContent = manual ? "Импорт PFX" : "Установить PFX";
   $("#os3-seg").classList.toggle("hidden", imp !== "cryptopro");
   for (const p of $$("pre.import")) show(p, imp, p.dataset.os === impID);
-  const pf = pfxFile(), known = pf.name !== "";
   {
     $("#import-note").textContent = imp === "openssl" ? (ca.gostChain || (pfxAlg && gost(pfxAlg)) ? "Нужен OpenSSL с gost-engine." : !pfxAlg ? "Для ключа ГОСТ нужен OpenSSL с gost-engine." : "Нужен openssl.") + " Сертификат с цепочкой — в $NAME.crt, ключ без пароля — в $NAME.key." : importNotes[os];
   }
-  for (const s of $$("[data-pfx]")) s.textContent = quote(pf[s.dataset.pfx], s.hasAttribute("data-ps"));
-  for (const s of $$("[data-pfx-set]")) s.textContent = known ? "NAME=" + quote(pf.name) + " && \\\nPASS=" + quote(pf.pass) : "NAME=${NAME:-} && \\\nPASS=${PASS:-}";
   // Verify: where the certificate is
   const place = value("where");
   $("#os4-seg").classList.toggle("hidden", place !== "cryptopro");
@@ -481,6 +517,7 @@ function refresh() {
   // Revoke: where the key is
   const where = value("tool2"), whereID = where === "cryptopro" ? os : where;
   $("#os2-seg").classList.toggle("hidden", where !== "cryptopro");
+  $("#rev-pfx").classList.toggle("hidden", where !== "pfx");
   $("#revoke-note").textContent = revokeNotes[where];
   for (const p of $$("pre.revoke")) show(p, where, p.dataset.os === whereID);
   if (!tls || !fqdn || fqdnValid(fqdn)) invalid(null);
@@ -493,10 +530,15 @@ function invalid(field, msg) {
   status($("#enroll-status"), field ? msg : "", "error");
 }
 // check finds a field that stops the issue, marks and focuses it
-function check(pfx) {
-  const {server, tls, fqdn} = use();
+// psUnsafe: Windows PowerShell 5.1 passes a password with a double quote, or
+// ending in a backslash, to certmgr altered
+const psUnsafe = pass => /"|\\$/.test(pass);
+const psPassword = "Для команды Windows пароль без \" и без \\ в конце";
+function check(pfx, command) {
+  const {server, tls, fqdn} = use(), pass = $("#pfx-password").value;
   const bad = server && !fqdn ? [$("#fqdn"), "Укажите DNS-имя"] : tls && fqdn && !fqdnValid(fqdn) ? [$("#fqdn"), "Некорректное DNS-имя"] :
-    pfx && !$("#pfx-name").value.trim() ? [$("#pfx-name"), "Укажите имя"] : pfx && !$("#pfx-password").value ? [$("#pfx-password"), "Укажите пароль PFX"] : null;
+    pfx && !$("#pfx-name").value.trim() ? [$("#pfx-name"), "Укажите имя"] : pfx && !pass ? [$("#pfx-password"), "Укажите пароль PFX"] :
+    command && value("dest") === "cryptopro" && value("os") === "windows" && psUnsafe(pass) ? [$("#pfx-password"), psPassword] : null;
   if (bad) { invalid(...bad); bad[0].focus(); }
   return !bad;
 }
@@ -504,7 +546,11 @@ for (const r of $$("input[name=tool]")) r.addEventListener("change", () => pick(
 for (const r of $$("input[name=tool2]")) r.addEventListener("change", () => pick("tool2", r.value));
 for (const r of $$("input[name=os],input[name=os2],input[name=os3],input[name=os4]")) r.addEventListener("change", () => pick("os", r.value));
 for (const r of $$("input[name=where]")) r.addEventListener("change", refresh);
-$("#open-import").onclick = () => { importing = true; pick("imp", value("imp")); $("#imp-file").focus(); };
+$("#open-import").onclick = () => {
+  importing = manual = true;
+  for (const f of ["#imp-b64", "#imp-pass"]) $(f).value = "";
+  pick("imp", value("imp")); $("#imp-b64").focus();
+};
 for (const r of $$("input[name=imp]")) r.addEventListener("change", () => pick("imp", r.value));
 for (const r of $$("#tls-server,#tls-client,input[name=response]")) r.addEventListener("change", refresh);
 // A PFX is named like the commands name a certificate, at the time of the
@@ -518,35 +564,47 @@ $("#get-pfx").onclick = async e => {
   const btn = e.target, st = $("#enroll-status");
   if (!nameEdited) refresh();
   if (!check(true)) return;
-  const name = $("#pfx-name").value.trim(), pass = $("#pfx-password").value, alg = $("#pfx-algo").value, u = use();
+  const {pass, json} = fieldValues().new, name = $("#pfx-name").value.trim(), alg = $("#pfx-algo").value;
   btn.disabled = true; status(st, "Выпускаем…");
   try {
-    const r = await fetch(new URL(enroll).pathname + "/pfx", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({name, algo: alg,
-      tlsServer: u.server, tlsClient: u.client, fqdn: u.tls ? u.fqdn : "", password: pass})});
+    const r = await fetch(new URL(enroll).pathname + "/pfx", {method: "POST", headers: {"Content-Type": "application/json"}, body: json});
     if (r.status === 403 && issue) throw new Error("ссылка выпуска не подходит к этому УЦ. Попросите владельца прислать её заново");
     if (!r.ok) throw new Error((await r.text()).trim() || "ошибка " + r.status);
-    // the file is named as the server names it
-    const file = name.replace(/[^\p{L}\p{N}._-]+/gu, "_");
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(await r.blob()); a.download = file + ".pfx"; a.click(); URL.revokeObjectURL(a.href);
-    $("#imp-file").value = file; $("#imp-cn").value = name; $("#imp-pass").value = pass; pfxAlg = alg; importing = true;
-    $("#pfx-pass-note").textContent = "Сохраните пароль: после закрытия страницы его здесь не будет.";
+    const blob = await r.blob(), bytes = new Uint8Array(await blob.arrayBuffer());
+    let bin = ""; for (const b of bytes) bin += String.fromCharCode(b);
+    const encoded = btoa(bin);
+    if (pfxURL) URL.revokeObjectURL(pfxURL);
+    pfxURL = URL.createObjectURL(blob);
+    $("#pfx-file").href = pfxURL; $("#pfx-file").download = fileName(name) + ".pfx";
+    $("#pfx-b64").value = encoded; $("#pfx-pass-out").value = pass;
+    $("#imp-b64").value = encoded; $("#imp-pass").value = pass; pfxName = fileName(name);
+    $("#rev-b64").value = encoded; $("#rev-pass").value = pass;
+    pfxAlg = alg; importing = true; manual = false;
     nameEdited = false; $("#pfx-password").value = newPassword();
     pick("imp", value("imp"));
-    status(st, "Скачан " + file + ".pfx", "ok");
+    status(st, "PFX выпущен", "ok");
   } catch (x) { status(st, "Не удалось выпустить: " + x.message, "error"); }
   finally { btn.disabled = false; }
 };
-for (const id of ["#fqdn", "#pfx-password", "#imp-file", "#imp-cn", "#imp-pass"]) $(id).addEventListener("input", refresh);
+for (const id of ["#fqdn", "#pfx-name", "#pfx-password", "#imp-b64", "#imp-pass", "#rev-b64", "#rev-pass"]) $(id).addEventListener("input", refresh);
+$("#pfx-algo").addEventListener("change", refresh);
+for (const r of $$("input[name=dest]")) r.addEventListener("change", () => pick("dest", r.value));
+$("#copy-b64").onclick = e => copyText($("#pfx-b64").value, e.target, "Скопировать base64");
+$("#copy-pass").onclick = e => copyText($("#pfx-pass-out").value, e.target, "Скопировать пароль");
 // A remembered choice counts if the page still offers it
 const remembered = (name, def) => { const v = localStorage.getItem("tuc-" + name); return $$("input[name=" + name + "]").some(r => r.value === v) ? v : def; };
 for (const r of $$("input[name=imp]")) r.checked = r.value === remembered("imp", "openssl");
+for (const r of $$("input[name=dest]")) r.checked = r.value === remembered("dest", "browser");
 for (const r of $$("input[name=os],input[name=os2],input[name=os3],input[name=os4]")) r.checked = r.value === remembered("os", /Win/.test(navigator.platform) ? "windows" : /Mac/.test(navigator.platform) ? "macos" : "linux");
 pick("tool", remembered("tool", "pfx"));
-$("#copy-enroll").onclick = e => { if (check(false)) copyText(shown("pre.enroll").textContent, e.target, "Скопировать команду"); };
-$("#copy-import").onclick = e => copyText(shown("pre.import").textContent, e.target, "Скопировать команду импорта");
+$("#copy-enroll").onclick = e => { const pfx = value("tool") === "pfx"; if (check(pfx, pfx)) copyText(shown(pfx ? "pre.pfxcmd" : "pre.enroll").textContent, e.target, "Скопировать команду"); };
+// a PFX command needs the base64 of the PFX
+const needPFX = (field, button, label) => { if (b64(field)) return true; field.focus(); flash(button, "Вставьте PFX (base64)", label); return false; };
+$("#copy-import").onclick = e => {
+  if (value("imp") === "cryptopro" && value("os") === "windows" && psUnsafe($("#imp-pass").value)) { $("#imp-pass").focus(); flash(e.target, psPassword, "Скопировать команду импорта"); return; }
+  if (needPFX($("#imp-b64"), e.target, "Скопировать команду импорта")) copyText(shown("pre.import").textContent, e.target, "Скопировать команду импорта"); };
 $("#copy-verify").onclick = e => copyText(shown("pre.verify").textContent, e.target, "Скопировать команду проверки");
-$("#copy-revoke").onclick = e => copyText(shown("pre.revoke").textContent, e.target, "Скопировать команду отзыва");
+$("#copy-revoke").onclick = e => { if (value("tool2") !== "pfx" || needPFX($("#rev-b64"), e.target, "Скопировать команду отзыва")) copyText(shown("pre.revoke").textContent, e.target, "Скопировать команду отзыва"); };
 
 $("#copy-pem").onclick = e => copyText(pem(ca.der), e.target, "Скопировать PEM");
 $("#certview").href = certview(ca.der);
@@ -825,7 +883,7 @@ func (s *Service) caPage(w http.ResponseWriter, r *http.Request) {
 		"DN": nameParts(n.cert.RawSubject), "Issuer": nameString(n.cert.RawIssuer), "Serial": hexSerial(n.cert.SerialNumber),
 		"NotBefore": n.cert.NotBefore, "NotAfter": n.cert.NotAfter,
 		"URL": s.caURL(n.id), "Chain": chain, "Parent": parent, "Children": children, "CanChild": len(chain) < maxLevel, "ChildLevel": len(chain) + 1,
-		"Commands": commands(s.publicationURL(n.id), s.estURL(n.id), s.publicationURL(chain[0].ID), n.alg),
+		"Commands": commands(urls{s.publicationURL(n.id), s.caURL(n.id), s.estURL(n.id)}, s.publicationURL(chain[0].ID), n.alg),
 		"Child": map[string]any{"Subject": testName(len(chain) + 1), "Closed": n.closed, "Child": true,
 			"Algos": algos, "Alg": n.alg},
 		"JSON": map[string]any{"id": n.id, "url": s.caURL(n.id), "pub": s.publicationURL(n.id), "est": s.estURL(n.id), "alg": n.alg, "issuance": n.iss, "gostChain": gostChain, "parent": parent, "closed": n.closed, "disabled": n.disabled,
