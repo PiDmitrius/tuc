@@ -5,6 +5,7 @@ import (
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/x509"
 	"crypto/x509/pkix"
 	"encoding/asn1"
@@ -15,6 +16,9 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"golang.org/x/crypto/cryptobyte"
+	cbasn1 "golang.org/x/crypto/cryptobyte/asn1"
 )
 
 func requestWithExtensions(t *testing.T, exts []pkix.Extension) []byte {
@@ -69,19 +73,20 @@ func TestEnrollmentTemplates(t *testing.T) {
 		{name: "server and client", exts: []pkix.Extension{san(dns("LEAF.example"), dns("leaf.example"), dns("other.example"), ip)}, u: both, dns: []string{"leaf.example", "other.example"}},
 		{name: "server without DNS", u: server, bad: true},
 		{name: "server with only IP", exts: []pkix.Extension{san(ip)}, u: server, bad: true},
-		{name: "invalid DNS", exts: []pkix.Extension{san(dns("bad_name"))}, u: client, bad: true},
+		{name: "invalid DNS", exts: []pkix.Extension{san(dns("bad_name"))}, u: server, bad: true},
+		{name: "invalid DNS skipped for a client", exts: []pkix.Extension{san(dns("bad_name"))}, u: client},
 		{name: "wildcard", exts: []pkix.Extension{san(dns("*.example"))}, u: server, bad: true},
 		{name: "trailing dot", exts: []pkix.Extension{san(dns("leaf.example."))}, u: server, bad: true},
 		{name: "non-ASCII DNS", exts: []pkix.Extension{san(dns("\u212a.example"))}, u: server, bad: true},
 		{name: "long label", exts: []pkix.Extension{san(dns(strings.Repeat("a", 64) + ".example"))}, u: server, bad: true},
 		{name: "bad SAN", exts: []pkix.Extension{{Id: oidSAN, Value: []byte{0xff}}}, u: server, bad: true},
-		{name: "duplicate SAN", exts: []pkix.Extension{san(dns("a.example")), san(dns("b.example"))}, bad: true},
+		{name: "first readable SAN", exts: []pkix.Extension{{Id: oidSAN, Value: []byte{0xff}}, san(dns("bad_name")), san(dns("a.example")), san(dns("b.example"))}, u: server, dns: []string{"a.example"}},
 	} {
 		t.Run(c.name, func(t *testing.T) {
 			der, err := e.svc.Issue(n, string(requestWithExtensions(t, c.exts)), c.u)
 			if c.bad {
 				if err == nil {
-					t.Fatal("ambiguous or malformed hints accepted")
+					t.Fatal("a server without a valid DNS name issued")
 				}
 				return
 			}
@@ -184,6 +189,139 @@ func TestEnrollPaths(t *testing.T) {
 		resp.Body.Close()
 		if resp.StatusCode != code {
 			t.Errorf("EST label %q: %d", label, resp.StatusCode)
+		}
+	}
+}
+
+// cryptcp 5.0.13484 -creatrqst -altname tuc.tuc: SAN in the Microsoft
+// extension request attribute.
+const cryptcpMSRequest = `-----BEGIN NEW CERTIFICATE REQUEST-----
+MIIBEDCBvgIBADAZMRcwFQYDVQQDEw5wcm9iZS1hZDI4OWFkZTBmMB8GCCqFAwcB
+AQEBMBMGByqFAwICJAAGCCqFAwcBAQICA0MABEAneAcf13HJgpdyaOR0sJPYjBCm
+cAgyLYIFAKSNKZidXbvnKSzBYI6regdeOxss0mh5WWWy7hxwFkSLbDP7hjtfoDYw
+NAYKKwYBBAGCNwIBDjEmMCQwDgYDVR0PAQH/BAQDAgP4MBIGA1UdEQQLMAmCB3R1
+Yy50dWMwCgYIKoUDBwEBAwIDQQDFGpTjRedx2a+v0iEALAMsPejVxglrKh4a836U
+0Y/BJrs/j2cXCP4W/w9Ps5Mu6HObVlrB0KSgoZw0ulrOp9l7
+-----END NEW CERTIFICATE REQUEST-----`
+
+func TestMicrosoftExtensionRequest(t *testing.T) {
+	e := newEnv(t)
+	root := e.create("/new", map[string]any{"subject": "CN=Root", "algo": "gost256"})
+	n, err := e.svc.open(root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer n.Close()
+	der, err := e.svc.Issue(n, cryptcpMSRequest, purpose{server: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	cert, err := x509.ParseCertificate(der)
+	if err != nil || !slices.Equal(cert.DNSNames, []string{"tuc.tuc"}) || !slices.Equal(cert.ExtKeyUsage, []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth}) {
+		t.Fatalf("%v %v %v", err, cert.DNSNames, cert.ExtKeyUsage)
+	}
+}
+
+// requestWithRawExtensions is a signed request whose extension request holds
+// exts as they are.
+func requestWithRawExtensions(t *testing.T, exts ...[]byte) []byte {
+	t.Helper()
+	key, err := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	spki, err := x509.MarshalPKIXPublicKey(&key.PublicKey)
+	if err != nil {
+		t.Fatal(err)
+	}
+	subject, err := asn1.Marshal(pkix.Name{CommonName: "leaf"}.ToRDNSequence())
+	if err != nil {
+		t.Fatal(err)
+	}
+	var info cryptobyte.Builder
+	info.AddASN1(cbasn1.SEQUENCE, func(b *cryptobyte.Builder) {
+		b.AddASN1Int64(0)
+		b.AddBytes(subject)
+		b.AddBytes(spki)
+		b.AddASN1(cbasn1.Tag(0).ContextSpecific().Constructed(), func(b *cryptobyte.Builder) {
+			b.AddASN1(cbasn1.SEQUENCE, func(b *cryptobyte.Builder) {
+				b.AddASN1ObjectIdentifier(oidExtensionReq)
+				b.AddASN1(cbasn1.SET, func(b *cryptobyte.Builder) {
+					b.AddASN1(cbasn1.SEQUENCE, func(b *cryptobyte.Builder) {
+						for _, e := range exts {
+							b.AddBytes(e)
+						}
+					})
+				})
+			})
+		})
+	})
+	tbs := info.BytesOrPanic()
+	h := sha256.Sum256(tbs)
+	sig, err := ecdsa.SignASN1(rand.Reader, key, h[:])
+	if err != nil {
+		t.Fatal(err)
+	}
+	var b cryptobyte.Builder
+	b.AddASN1(cbasn1.SEQUENCE, func(b *cryptobyte.Builder) {
+		b.AddBytes(tbs)
+		b.AddASN1(cbasn1.SEQUENCE, func(b *cryptobyte.Builder) {
+			b.AddASN1ObjectIdentifier(asn1.ObjectIdentifier{1, 2, 840, 10045, 4, 3, 2})
+		})
+		b.AddASN1BitString(sig)
+	})
+	return b.BytesOrPanic()
+}
+
+func TestRequestSANSkipping(t *testing.T) {
+	e := newEnv(t)
+	root := e.create("/new", map[string]any{"subject": "CN=Root", "algo": "ecdsa256"})
+	n, err := e.svc.open(root.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer n.Close()
+	sanExt := func(extra []byte, names ...string) []byte {
+		var v cryptobyte.Builder
+		v.AddASN1(cbasn1.SEQUENCE, func(b *cryptobyte.Builder) {
+			for _, name := range names {
+				b.AddASN1(cbasn1.Tag(2).ContextSpecific(), func(b *cryptobyte.Builder) { b.AddBytes([]byte(name)) })
+			}
+		})
+		var b cryptobyte.Builder
+		b.AddASN1(cbasn1.SEQUENCE, func(b *cryptobyte.Builder) {
+			b.AddASN1ObjectIdentifier(oidSAN)
+			b.AddASN1OctetString(v.BytesOrPanic())
+			b.AddBytes(extra)
+		})
+		return b.BytesOrPanic()
+	}
+	null := []byte{5, 0}
+	brokenSAN := extension(oidSAN, false, func(b *cryptobyte.Builder) { b.AddBytes([]byte{0xff}) })
+	for _, c := range []struct {
+		name string
+		exts [][]byte
+		dns  string
+		err  string
+	}{
+		{"element of another type before SAN", [][]byte{null, sanExt(nil, "good.example")}, "good.example", ""},
+		{"SAN with trailing data skipped", [][]byte{sanExt(null, "wrong.example"), sanExt(nil, "good.example")}, "good.example", ""},
+		{"invalid DNS reported over a later broken SAN", [][]byte{sanExt(nil, "bad_name"), brokenSAN}, "", "некорректное DNS-имя"},
+	} {
+		der, err := e.svc.Issue(n, string(requestWithRawExtensions(t, c.exts...)), purpose{server: true})
+		if c.err != "" {
+			if err == nil || !strings.Contains(err.Error(), c.err) {
+				t.Errorf("%s: %v", c.name, err)
+			}
+			continue
+		}
+		if err != nil {
+			t.Errorf("%s: %v", c.name, err)
+			continue
+		}
+		cert, err := x509.ParseCertificate(der)
+		if err != nil || !slices.Equal(cert.DNSNames, []string{c.dns}) {
+			t.Errorf("%s: %v %v", c.name, err, cert.DNSNames)
 		}
 	}
 }
