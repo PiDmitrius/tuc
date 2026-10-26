@@ -529,6 +529,7 @@ func (s *Service) pfx(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusBadRequest, err)
 		return
 	}
+	w.Header().Set("Cache-Control", "no-store")
 	file(w, r, "application/x-pkcs12", fileName.ReplaceAllString(strings.TrimSpace(req.Name), "_")+".pfx", time.Time{}, p12)
 }
 

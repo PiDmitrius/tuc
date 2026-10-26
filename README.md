@@ -36,9 +36,11 @@ creates subordinate CAs, makes issuance open or by link, revokes a
 subordinate CA under its issuer and disables the CA: a disabled CA answers
 503 to issuance, CRL, OCSP, its certificate and time-stamps, as if it were
 down, until enabled again. `/<id>` shows the CA and
-how to get a certificate: a PFX made by the CA, or a key of one's own with
-OpenSSL or CryptoPro; how to import a PFX, check a certificate's chain and
-revocation, and revoke it; `/<id>#issue=<issue token>`, the issue link, opens it
+how to get a certificate: a PFX made by the CA, shown on the page as base64
+and a file or issued and installed into OpenSSL or CryptoPro by one command
+over the page address, or a key of one's own with OpenSSL or CryptoPro; how to
+import a PFX from its base64, check a certificate's chain and revocation, and
+revoke it; `/<id>#issue=<issue token>`, the issue link, opens it
 for a CA that issues by link.
 
 The Access section can replace either link independently. Replacement increments
@@ -89,7 +91,7 @@ ownership-validated.
 | `POST <enroll>[/tls-server][/tls-client][/justcert]/certfnsh.asp` | issues a leaf certificate, as `cryptcp -createcert -ca <enroll>[/tls-server][/tls-client][/justcert]` posts; the options in any order, each once |
 | `GET /.well-known/est/<label>/cacerts` | EST (RFC 7030): the CA and the CAs above it; the label is the CA id, optionally followed by `+tls-server` and `+tls-client` |
 | `POST /.well-known/est/<label>/simpleenroll`, `/simplereenroll` | EST: issues a leaf certificate of the template the label selects; a CA that issues by link takes its issue token as the HTTP Basic password |
-| `POST <enroll>/pfx` | `{"name", "algo", "tlsServer", "tlsClient", "fqdn", "password"}`: a key of any algorithm, by default the CA's, generated and not retained by TUC, with a leaf certificate from the template the TLS fields select, in a password-protected PKCS#12 with the chain; GOST uses Kuznyechik and Streebog, other algorithms use AES-256 and SHA-256 |
+| `POST <enroll>/pfx` | `{"name", "algo", "tlsServer", "tlsClient", "fqdn", "password"}`: a key of any algorithm, by default the CA's, generated and not retained by TUC, with a leaf certificate from the template the TLS fields select, in a password-protected PKCS#12 with the chain; GOST uses Kuznyechik and Streebog, other algorithms use AES-256 and SHA-256; not cached |
 | `POST /<id>/tsp` | time-stamp (RFC 3161) under the policy anyPolicy, signed by a time-stamping certificate the CA issues at the first request, of its algorithm, with its CRL and OCSP URLs |
 | `POST /<id>/revoke` | revokes the certificate that signed the word `revoke` |
 

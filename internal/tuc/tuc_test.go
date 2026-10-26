@@ -549,7 +549,8 @@ func testPFX(t *testing.T, e *env) {
 		t.Fatalf("PFX certificate: %v %+v", err, c)
 	}
 	page := e.get(root.URL)
-	imp := strings.NewReplacer("NAME=''", "NAME=p", "PASS=''", "PASS=pw").Replace(pageCommand(t, page, `data-os="openssl" data-tool="openssl" class="import off"`))
+	pfx64 := "printf %s '" + b64.StdEncoding.EncodeToString(p12) + "'"
+	imp := strings.NewReplacer("NAME=''", "NAME=p", "PASS=''", "PASS=pw", "printf %s ''", pfx64).Replace(pageCommand(t, page, `data-os="openssl" data-tool="openssl" class="import off"`))
 	imported := exec.Command("sh", "-c", imp+` &&
 openssl x509 -in p.crt -pubkey -noout | openssl pkey -pubin -outform DER > crt.pub && openssl pkey -in p.key -pubout -outform DER | cmp - crt.pub &&
 [ "$(grep -c "BEGIN CERTIFICATE" p.crt)" = 2 ] && [ "$(stat -c %a p.key)" = 600 ]`)
@@ -557,14 +558,20 @@ openssl x509 -in p.crt -pubkey -noout | openssl pkey -pubin -outform DER > crt.p
 	if out, err := imported.CombinedOutput(); err != nil {
 		t.Fatalf("page import command for OpenSSL: %v %s", err, out)
 	}
-	revoke := pageCommand(t, page, `data-os="pfx" data-tool="pfx" class="revoke off"`)
-	cmd := exec.Command("sh", "-c", "NAME=p PASS=pw\n"+revoke)
+	revoke := strings.NewReplacer("PASS=''", "PASS=pw", "printf %s ''", pfx64).Replace(pageCommand(t, page, `data-os="pfx" data-tool="pfx" class="revoke off"`))
+	cmd := exec.Command("sh", "-c", revoke)
 	cmd.Dir = dir
 	if out, err := cmd.CombinedOutput(); err != nil || !strings.Contains(string(out), `"revoked"`) {
 		t.Fatalf("page revoke command for a PFX: %v %s", err, out)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "p.pem")); !os.IsNotExist(err) {
-		t.Fatal("the PFX revoke command left the key in p.pem")
+	// The PFX command issues and installs in one go, leaving only the result
+	install := strings.NewReplacer("NAME=''", "NAME=q", "PASS=''", "PASS=pw2", "--data-binary ''", `--data-binary '{"name":"q","password":"pw2"}'`).
+		Replace(pageCommand(t, page, `data-os="openssl" data-tool="openssl" class="pfxcmd off"`))
+	installed := exec.Command("sh", "-c", install+` &&
+openssl x509 -in q.crt -pubkey -noout | openssl pkey -pubin -outform DER > q.pub && openssl pkey -in q.key -pubout -outform DER | cmp - q.pub`)
+	installed.Dir = t.TempDir()
+	if out, err := installed.CombinedOutput(); err != nil {
+		t.Fatalf("page PFX command for OpenSSL: %v %s", err, out)
 	}
 	for _, bad := range []map[string]any{{"name": "x"}, {"name": "", "password": "pw"}, {"name": "x", "password": "pw", "tlsServer": true, "fqdn": "bad name"}} {
 		if code, _ := post("/"+root.ID+"/pfx", bad); code != http.StatusBadRequest {

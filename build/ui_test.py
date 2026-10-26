@@ -1,6 +1,7 @@
 # ui_test.py <base URL>: the owner and issue link scenarios of the pages in
 # Chromium; fails on a JavaScript error or a missing step.
 import json
+import base64
 import re
 import sys
 
@@ -72,7 +73,7 @@ with sync_playwright() as p:
     # The enroll command follows the choices
     issue_card = page.locator("#issue")
     page.locator("#issue .head").click()
-    tools = issue_card.locator(".controls").first
+    tools = issue_card.get_by_role("radiogroup", name="Способ выпуска")
     expect(issue_card.locator("input[name=tool][value=pfx]")).to_be_checked()
     expect(page.locator("#os-seg")).to_be_hidden()
     tools.get_by_text("КриптоПро", exact=True).click()
@@ -129,53 +130,81 @@ with sync_playwright() as p:
     page.locator("#fqdn").fill("srv.example.org")
     expect(page.locator("#pfx-name")).to_have_value(re.compile(r"^srv\.example\.org-TUC-\d{8}-\d{6}$"))
     issue_card.get_by_text("TLS-сервер", exact=True).click()
-    # An existing PFX: its import commands take the file, CN and password typed
+    # An existing PFX: its import commands take the base64, CN and password typed
     expect(page.locator("#pfx-import")).to_be_hidden()
     page.get_by_role("button", name="Импорт имеющегося PFX").click()
-    page.locator("#imp-file").fill("old"); page.locator("#imp-cn").fill("Old One"); page.locator("#imp-pass").fill("it's")
+    page.get_by_role("button", name="Скопировать команду импорта").click()
+    expect(page.locator("#imp-b64")).to_be_focused()
+    page.locator("#imp-b64").fill("QUJD\nREVG"); page.locator("#imp-pass").fill("it's")
     page.get_by_role("button", name="Скопировать команду импорта").click()
     cmd = page.evaluate("window.copied")
-    assert "NAME='old' && \\\nPASS='it'\\''s' && \\\n" in cmd, cmd
+    assert re.search(r"NAME='TUC-\d{8}-\d{6}' && \\\nPASS='it'\\''s' && \\\n", cmd) and "printf %s 'QUJDREVG'" in cmd, cmd
     password = page.locator("#pfx-password").input_value()
     assert re.fullmatch(r"TUC-\d{8}-\d{6}", page.locator("#pfx-name").input_value()) and len(password) == 12, password
+    # The PFX issued in the browser: its base64, its file and its password
+    page.get_by_role("button", name="Выпустить PFX").click()
+    expect(page.locator("#enroll-status")).to_have_text("PFX выпущен")
+    encoded = page.locator("#pfx-b64").input_value()
+    expect(page.locator("#pfx-pass-out")).to_have_value(password)
     with page.expect_download() as d:
-        page.get_by_role("button", name="Выпустить и скачать PFX").click()
+        page.locator("#pfx-file").click()
     name = d.value.suggested_filename.removesuffix(".pfx")
     assert re.fullmatch(r"TUC-\d{8}-\d{6}", name), name
-    assert d.value.path().stat().st_size > 1000
-    expect(page.locator("#enroll-status")).to_have_text("Скачан " + name + ".pfx")
-    # Import and revoke commands carry the name and password of the PFX
-    # downloaded; the form gets a new password for the next one
+    assert d.value.path().read_bytes() == base64.b64decode(encoded)
+    # Import and revoke commands carry the PFX issued; the form gets a new password
     expect(page.locator("#os3-seg")).to_be_hidden()
-    expect(page.locator("#imp-file")).to_have_value(name)
-    expect(page.locator("#pfx-pass-note")).to_contain_text("Сохраните пароль")
+    expect(page.locator("#imp-b64")).to_have_value(encoded)
+    expect(page.locator("#imp-fields")).to_be_hidden()
     assert page.locator("#pfx-password").input_value() != password
     page.get_by_role("button", name="Скопировать команду импорта").click()
     cmd = page.evaluate("window.copied")
-    assert "NAME='" + name + "' && \\\nPASS='" + password + "' && \\\n" in cmd and "-nocerts -nodes" in cmd, cmd
+    assert "NAME='" + name + "' && \\\nPASS='" + password + "' && \\\n" in cmd and "-nocerts -nodes" in cmd and encoded in cmd, cmd
     page.locator("#revoke .head").click()
     page.get_by_role("button", name="Скопировать команду отзыва").click()
     cmd = page.evaluate("window.copied")
-    assert "\nNAME='" + name + "' && \\\nPASS='" + password + "' && \\\n" in cmd, cmd
+    assert "PASS='" + password + "'" in cmd and encoded in cmd and not re.search(r"/[0-9A-F]{40}/[a-z2-7]{32}", cmd), cmd
     page.locator("#pfx-import").get_by_text("КриптоПро", exact=True).click()
     page.locator("#os3-seg").get_by_text("Linux", exact=True).click()
     page.get_by_role("button", name="Скопировать команду импорта").click()
     cmd = page.evaluate("window.copied")
     assert "certmgr -inst -pfx" in cmd and re.search(r"/[0-9A-F]{40}\.crt", cmd), cmd
-    # a CN with a space: the file is named without it, CryptoPro finds the CN
+    # a CN with a space: the file is named without it; CryptoPro finds the certificate by thumbprint
     page.locator("#pfx-name").fill("Test User")
-    with page.expect_download() as d:
-        page.get_by_role("button", name="Выпустить и скачать PFX").click()
-    assert d.value.suggested_filename == "Test_User.pfx", d.value.suggested_filename
+    page.get_by_role("button", name="Выпустить PFX").click()
+    expect(page.locator("#pfx-file")).to_have_attribute("download", "Test_User.pfx")
     page.get_by_role("button", name="Скопировать команду импорта").click()
     cmd = page.evaluate("window.copied")
-    assert "FILE='Test_User' && \\\nNAME='Test User' && \\\n" in cmd, cmd
+    assert "SHA1=$(awk" in cmd and "PrivateKey Link" in cmd and "NAME=" not in cmd, cmd
+    # Issued and installed by a command: over the page address, with the issue link
+    dests = issue_card.get_by_role("radiogroup", name="Куда")
+    dests.get_by_text("OpenSSL", exact=True).click()
+    expect(page.locator("#get-pfx")).to_be_hidden()
+    page.locator("#copy-enroll").click()
+    cmd = page.evaluate("window.copied")
+    assert re.search(r"TUC=" + re.escape(base) + r"/[0-9A-F]{40}/[a-z2-7]{32} && ", cmd) and "--data-binary '{" in cmd and '"$TUC/pfx"' in cmd, cmd
+    expect(page.locator("#enroll-note")).to_contain_text("Команда содержит ссылку выпуска")
+    expect(page.locator("#revoke input[name=tool2][value=openssl]")).to_be_checked()
+    dests.get_by_text("КриптоПро", exact=True).click()
+    page.locator("#os-seg").get_by_text("Windows", exact=True).click()
+    page.locator("#copy-enroll").click()
+    cmd = page.evaluate("window.copied")
+    assert "FromBase64String(" in cmd and "curl.exe" in cmd and "Remove-Item" in cmd, cmd
+    good_password = page.locator("#pfx-password").input_value()
+    page.locator("#pfx-password").fill('ab"cd')
+    page.locator("#copy-enroll").click()
+    expect(page.locator("#enroll-status")).to_have_text('Для команды Windows пароль без " и без \\ в конце')
+    page.locator("#pfx-password").fill(good_password)
+    page.locator("#os-seg").get_by_text("Linux", exact=True).click()
+    dests.get_by_text("Браузер", exact=True).click()
+    page.locator("#pfx-import").get_by_text("OpenSSL", exact=True).click()
+    page.locator("#pfx-import").get_by_text("КриптоПро", exact=True).click()
     # The check and the revoke follow where the PFX is imported
     expect(page.locator("#revoke input[name=tool2][value=cryptopro]")).to_be_checked()
     expect(page.locator("#verify input[name=where][value=cryptopro]")).to_be_checked()
     page.locator("#pfx-import").get_by_text("OpenSSL", exact=True).click()
     expect(page.locator("#revoke input[name=tool2][value=pfx]")).to_be_checked()
-    expect(page.locator("#revoke-note")).to_contain_text("PASS")
+    expect(page.locator("#rev-b64")).to_be_visible()
+    expect(page.locator("#rev-b64")).not_to_have_value("")
     page.locator("#verify .head").click()
     expect(page.locator("#verify input[name=where][value=openssl]")).to_be_checked()
     page.get_by_role("button", name="Скопировать команду проверки").click()
@@ -446,12 +475,12 @@ with sync_playwright() as p:
         expect(tab.locator("#tls-server")).not_to_be_checked()
         expect(tab.locator("#tls-client")).not_to_be_checked()
         expect(tab.locator("#settings")).to_be_hidden()
-        with tab.expect_download() as download:
-            tab.locator("#get-pfx").click()
-        assert download.value.path().stat().st_size > 1000
+        tab.locator("#get-pfx").click()
+        expect(tab.locator("#enroll-status")).to_have_text("PFX выпущен")
+        assert len(tab.locator("#pfx-b64").input_value()) > 1000
         expect(tab.locator("#pfx-import")).to_be_visible()
         tab.locator("#copy-import").click()
-        assert download.value.suggested_filename.removesuffix(".pfx") in tab.evaluate("window.copied")
+        assert tab.locator("#pfx-b64").input_value() in tab.evaluate("window.copied")
     expect(recipient.locator("#pill-issue")).to_be_visible()
     expect(owner.locator("#pill-admin")).to_be_visible()
     expect(owner.locator(".item.open")).to_have_count(0)
@@ -479,18 +508,19 @@ with sync_playwright() as p:
     owner.locator("#pfx-algo").select_option("rsa2048")
     owner.locator("#pfx-name").fill("UX User")
     saved_password = owner.locator("#pfx-password").input_value()
-    with owner.expect_download() as download:
-        owner.locator("#get-pfx").click()
-    assert download.value.suggested_filename == "UX_User.pfx"
+    owner.locator("#get-pfx").click()
+    expect(owner.locator("#pfx-file")).to_have_attribute("download", "UX_User.pfx")
     owner.locator("#copy-import").click()
     command = owner.evaluate("window.copied")
-    assert "NAME='UX_User'" in command and saved_password in command
+    assert saved_password in command and ("NAME='UX_User'" in command or "SHA1=" in command), command
     owner.locator("#saved").click()
     owner.reload()
     expect(owner.locator("#save")).to_be_hidden()
     owner.locator("#issue > .head").click()
     owner.locator("#open-import").click()
-    expect(owner.locator("#imp-file")).to_have_value("")
+    expect(owner.locator("#imp-fields")).to_be_visible()
+    expect(owner.locator("#imp-b64")).to_have_value("")
+    expect(owner.locator("#pfx-result")).to_be_hidden()
     expect(owner.locator("#imp-pass")).to_have_value("")
     for tab in (creator, visitor, recipient, owner):
         tab.context.close()
@@ -513,8 +543,8 @@ with sync_playwright() as p:
     expect(probe.locator("#verify-note")).to_contain_text("OpenSSL с gost-engine")
     probe.locator('input[name=tool][value=pfx]').locator('..').click()
     probe.locator("#pfx-algo").select_option("rsa2048")
-    with probe.expect_download():
-        probe.locator("#get-pfx").click()
+    probe.locator("#get-pfx").click()
+    expect(probe.locator("#enroll-status")).to_have_text("PFX выпущен")
     probe.locator('input[name=imp][value=openssl]').locator('..').click()
     expect(probe.locator("#import-note")).to_contain_text("Нужен OpenSSL с gost-engine")
     expect(probe.locator("#management-rows")).to_be_hidden()

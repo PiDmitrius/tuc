@@ -9,39 +9,35 @@ import (
 	"testing"
 )
 
-func TestCryptoProDN(t *testing.T) {
-	for _, test := range []struct{ name, dn string }{
-		{`Plain User`, `CN=Plain User`}, {`Probe, Person`, `CN="Probe, Person"`},
-		{`a"b`, `CN="a""b"`}, {`a\b`, `CN=a\b`}, {` +;=<># `, `CN=" +;=<># "`}, {`a'b`, `CN=a'b`},
-	} {
-		name := test.name
-		for _, script := range []string{posixVerify("/unused"), strings.ReplaceAll(posixRevoke("/unused"), markTUC, "http://tuc.test")} {
-			dir := t.TempDir()
-			stub := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$ARGS\"\necho 'Certificate chain: Verified successfully'\n"
-			for _, tool := range []string{"cryptcp", "certmgr", "curl"} {
-				if err := os.WriteFile(filepath.Join(dir, tool), []byte(stub), 0700); err != nil {
-					t.Fatal(err)
-				}
+func TestCryptoProThumbprint(t *testing.T) {
+	for _, script := range []string{posixVerify("/unused"), strings.ReplaceAll(posixRevoke("/unused"), markRev, "http://tuc.test")} {
+		dir := t.TempDir()
+		stub := "#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$ARGS\"\necho 'Certificate chain: Verified successfully'\n"
+		for _, tool := range []string{"cryptcp", "certmgr"} {
+			if err := os.WriteFile(filepath.Join(dir, tool), []byte(stub), 0700); err != nil {
+				t.Fatal(err)
 			}
-			args := filepath.Join(dir, "args")
-			// curl leaves the signing command's argument capture intact.
-			os.WriteFile(filepath.Join(dir, "curl"), []byte("#!/bin/sh\nexit 0\n"), 0700)
-			cmd := exec.Command("sh", "-ec", script)
-			cmd.Dir = dir
-			cmd.Env = append(os.Environ(), "NAME="+name, "PATH="+dir+":"+os.Getenv("PATH"), "ARGS="+args)
-			if out, err := cmd.CombinedOutput(); err != nil {
-				t.Fatalf("%v %s", err, out)
-			}
-			argv, err := os.ReadFile(args)
-			want := "-dn\n" + test.dn + "\n"
-			if err != nil || !strings.Contains(string(argv), want) {
-				t.Fatalf("DN for %q: %s (%v)", name, argv, err)
-			}
+		}
+		os.WriteFile(filepath.Join(dir, "curl"), []byte("#!/bin/sh\nexit 0\n"), 0700)
+		args := filepath.Join(dir, "args")
+		cmd := exec.Command("sh", "-ec", script)
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "SHA1=0123abcd", "PATH="+dir+":"+os.Getenv("PATH"), "ARGS="+args)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("%v %s", err, out)
+		}
+		if argv, err := os.ReadFile(args); err != nil || !strings.Contains(string(argv), "-thumbprint\n0123abcd\n") {
+			t.Fatalf("thumbprint: %s (%v)", argv, err)
 		}
 	}
 	for _, script := range []string{psVerify(), psRevoke()} {
-		if !strings.Contains(script, `.Replace('"', '""')`) || strings.Contains(script, `-dn "CN=$NAME"`) || !strings.Contains(script, "-dn $DN") {
-			t.Fatal("PowerShell DN escaping absent")
+		if !strings.Contains(script, "-thumbprint $SHA1") || strings.Contains(script, "-dn") {
+			t.Fatal("PowerShell finds the certificate otherwise than by thumbprint")
+		}
+	}
+	for _, cmd := range []string{posixEnroll("/p", "rsa2048", enrollPurposes[0], true), psEnroll("rsa2048", enrollPurposes[0], true), posixPFX("/p", "r", "pfx"), psPFX("r", "pfx")} {
+		if !strings.Contains(cmd, "SHA1") {
+			t.Errorf("no SHA1 set: %s", cmd)
 		}
 	}
 }

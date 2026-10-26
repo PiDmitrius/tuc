@@ -2,38 +2,55 @@ package tuc
 
 import (
 	"html/template"
+	"regexp"
 	"strings"
 )
 
-// Markers in commands that a page fills: the enroll URL of the CA and its
-// EST URL, which may carry the issue token, the DNS name of a TLS server, and
-// the file name, CN and password of the PFX downloaded last, quoted for a
-// POSIX shell or PowerShell.
+// Markers in commands that a page fills: the enroll URL of the CA for
+// cryptcp, which may carry the issue token, the same over HTTPS for a PFX,
+// the address revocation posts to, the EST URL, the DNS name of a TLS server,
+// and fields of the page.
 const (
-	markTUC    = "\x00TUC\x00"
-	markEST    = "\x00EST\x00"
-	markFQDN   = "\x00FQDN\x00"
-	markName   = "\x00NAME\x00"
-	markPass   = "\x00PASS\x00"
-	markNamePS = "\x00NAMEPS\x00"
-	markCN     = "\x00CN\x00"
-	markCNPS   = "\x00CNPS\x00"
-	markPassPS = "\x00PASSPS\x00"
-	markSetPFX = "\x00SETPFX\x00"
+	markTUC  = "\x00TUC\x00"
+	markTUCS = "\x00TUCS\x00"
+	markRev  = "\x00REV\x00"
+	markEST  = "\x00EST\x00"
+	markFQDN = "\x00FQDN\x00"
 )
 
-// script is a command as HTML: the markers become spans that the page fills.
-func script(cmd, tuc, est string) template.HTML {
-	h := template.HTMLEscapeString(cmd)
-	h = strings.ReplaceAll(h, template.HTMLEscapeString(markTUC), `<span data-tuc>`+template.HTMLEscapeString(tuc)+`</span>`)
-	h = strings.ReplaceAll(h, template.HTMLEscapeString(markEST), `<span data-est>`+template.HTMLEscapeString(est)+`</span>`)
-	h = strings.ReplaceAll(h, template.HTMLEscapeString(markFQDN), `<span data-fqdn>&lt;FQDN&gt;</span>`)
-	for m, span := range map[string]string{markName: `data-pfx="name"`, markPass: `data-pfx="pass"`,
-		markNamePS: `data-pfx="name" data-ps`, markPassPS: `data-pfx="pass" data-ps`,
-		markCN: `data-pfx="cn"`, markCNPS: `data-pfx="cn" data-ps`} {
-		h = strings.ReplaceAll(h, template.HTMLEscapeString(m), `<span `+span+`>''</span>`)
+// field is the marker of a page field, group.name, quoted for a POSIX shell
+// or PowerShell: new is the PFX to issue (name, pass, json, json64), pfx the
+// one to import (name, pass, b64) and rev the one to revoke by (pass, b64).
+func field(name string, ps bool) string {
+	if ps {
+		return "\x00F" + name + " ps\x00"
 	}
-	h = strings.ReplaceAll(h, template.HTMLEscapeString(markSetPFX), `<span data-pfx-set>NAME=${NAME:-} &amp;&amp; \`+"\n"+`PASS=${PASS:-}</span>`)
+	return "\x00F" + name + "\x00"
+}
+
+var fieldMark = regexp.MustCompile(`\x00F([a-z]+\.[a-z0-9]+)( ps)?\x00`)
+
+// urls are the addresses a page starts with, before it knows the token.
+type urls struct{ tuc, tucs, est string }
+
+// script is a command as HTML: the markers become spans that the page fills.
+func script(cmd string, u urls) template.HTML {
+	cmd = fieldMark.ReplaceAllStringFunc(cmd, func(m string) string {
+		g := fieldMark.FindStringSubmatch(m)
+		ps := ""
+		if g[2] != "" {
+			ps = " data-ps"
+		}
+		return "\x01" + g[1] + ps + "\x02"
+	})
+	h := template.HTMLEscapeString(cmd)
+	h = strings.ReplaceAll(h, "\x01", `<span data-f="`)
+	h = strings.ReplaceAll(h, "\x02", `">''</span>`)
+	h = strings.ReplaceAll(h, " data-ps\">", `" data-ps>`)
+	for m, span := range map[string]string{markTUC: `<span data-tuc>` + u.tuc, markTUCS: `<span data-tucs>` + u.tucs,
+		markRev: `<span data-rev>` + u.tuc, markEST: `<span data-est>` + u.est, markFQDN: `<span data-fqdn>&lt;FQDN&gt;`} {
+		h = strings.ReplaceAll(h, template.HTMLEscapeString(m), span+`</span>`)
+	}
 	return template.HTML(h)
 }
 
@@ -44,12 +61,13 @@ func chain(cmds ...string) string { return strings.Join(cmds, " && \\\n") }
 func psChain(cmds ...string) string { return strings.Join(cmds, "; `\n") }
 
 // osCommands are the commands of a tool, "pfx", "openssl" or "cryptopro";
-// those of CryptoPro differ by OS, a PFX is enrolled on the page and
-// imported by the others.
+// those of CryptoPro differ by OS; OpenSSL and CryptoPro also issue and
+// install a PFX and install one of the page.
 type osCommands struct {
 	ID, Title, Tool string
 	Enroll          []enrollCommand
-	Import, Verify  template.HTML
+	PFX, Import     template.HTML // issue a PFX and install it, install one of the page
+	Verify          template.HTML
 	Revoke          template.HTML
 }
 
@@ -59,12 +77,12 @@ type enrollCommand struct {
 	Script   template.HTML
 }
 
-// DN values quote their separators and double embedded quotes independently of the shell.
-const posixDN = `DN=$(printf '%s' "$NAME" | sed '/[,+"<>;=#]/ {s/"/""/g;s/^/"/;s/$/"/;}')
-  DN="CN=$DN"`
-const psDN = `$DN = $NAME
-  if ($DN -match '[,+"<>;=#]') { $DN = '"' + $DN.Replace('"', '""') + '"' }
-  $DN = 'CN=' + $DN`
+// CryptoPro commands find a certificate by its SHA-1 thumbprint, in $SHA1:
+// the enroll and PFX install commands set it.
+const (
+	posixSHA1 = `SHA1=$(certmgr -list -store uMy -container "\\\\.\\HDIMAGE\\$NAME" | sed -n 's/^SHA1 Thumbprint *: //p') && echo "SHA1=$SHA1"`
+	psSHA1    = `$SHA1 = (certmgr -list -store uMy -container "\\.\HDIMAGE\$NAME" | Select-String 'SHA1 Thumbprint\s*:\s*(\w+)').Matches[0].Groups[1].Value; "SHA1=$SHA1"`
+)
 
 // enrollPurpose is a purpose the page offers: the TLS use and whether the
 // request carries a DNS name, which a server requires and a client may have.
@@ -115,16 +133,15 @@ func posixEnroll(path string, a algo, p enrollPurpose, withChain bool) string {
 	} else {
 		lines = append(lines, "NAME=${USER:-$(id -un)}-TUC-$(date +%Y%m%d-%H%M%S)")
 	}
-	lines = append(lines, `cryptcp -createcert -rdn "CN=$NAME" -cont "\\\\.\\HDIMAGE\\$NAME" -du -pin ""`+opts+cryptcpCA(p.u, withChain))
+	lines = append(lines, `cryptcp -createcert -rdn "CN=$NAME" -cont "\\\\.\\HDIMAGE\\$NAME" -du -pin ""`+opts+cryptcpCA(p.u, withChain), posixSHA1)
 	return chain(lines...)
 }
 
 func posixRevoke(path string) string {
-	return chain("export PATH=$PATH:"+path, "TUC="+markTUC, `if [ -z "$NAME" ]; then echo "Укажите NAME сертификата для отзыва"; else
-  `+posixDN+`
-  echo revoke > "$NAME.revoke.txt" &&
-  cryptcp -sign -dn "$DN" -pin "" "$NAME.revoke.txt" "$NAME.revoke.p7s" &&
-  curl --data-binary @"$NAME.revoke.p7s" "$TUC/revoke"; echo
+	return chain("export PATH=$PATH:"+path, "TUC="+markRev, `if [ -z "$SHA1" ]; then echo "Укажите SHA1 сертификата для отзыва"; else
+  T=$(mktemp -d) && echo revoke > "$T/r.txt" &&
+  cryptcp -sign -thumbprint "$SHA1" -pin "" "$T/r.txt" "$T/r.p7s" &&
+  curl --data-binary @"$T/r.p7s" "$TUC/revoke"; e=$?; echo; rm -rf "$T"; [ $e = 0 ]
 fi`)
 }
 
@@ -138,16 +155,17 @@ func psEnroll(a algo, p enrollPurpose, withChain bool) string {
 	} else {
 		lines = append(lines, `$NAME = "$env:USERNAME-TUC-`+date+`"`)
 	}
-	lines = append(lines, `cryptcp -createcert -rdn "CN=$NAME" -cont "\\.\HDIMAGE\$NAME" -du`+opts+cryptcpCA(p.u, withChain))
+	lines = append(lines, `cryptcp -createcert -rdn "CN=$NAME" -cont "\\.\HDIMAGE\$NAME" -du`+opts+cryptcpCA(p.u, withChain), psSHA1)
 	return psChain(lines...)
 }
 
 func psRevoke() string {
-	return psChain(`$env:Path += ";C:\Program Files\Crypto Pro\CSP"`, `$TUC = "`+markTUC+`"`, `if (-not $NAME) { "Укажите NAME сертификата для отзыва" } else {
-  `+psDN+`
-  Set-Content -Encoding ascii "$NAME.revoke.txt" revoke
-  cryptcp -sign -dn $DN "$NAME.revoke.txt" "$NAME.revoke.p7s"
-  if ($LASTEXITCODE -eq 0) { curl.exe --data-binary "@$NAME.revoke.p7s" "$TUC/revoke" }
+	return psChain(`$env:Path += ";C:\Program Files\Crypto Pro\CSP"`, `$TUC = "`+markRev+`"`, `if (-not $SHA1) { "Укажите SHA1 сертификата для отзыва" } else {
+  $T = Join-Path $env:TEMP ([guid]::NewGuid()); New-Item -ItemType Directory $T | Out-Null
+  Set-Content -Encoding ascii "$T\r.txt" revoke
+  cryptcp -sign -thumbprint $SHA1 "$T\r.txt" "$T\r.p7s"
+  if ($LASTEXITCODE -eq 0) { curl.exe --data-binary "@$T\r.p7s" "$TUC/revoke" }
+  Remove-Item -Recurse -Force $T
 }`)
 }
 
@@ -172,35 +190,69 @@ func estEnroll(a algo, p enrollPurpose, withChain bool) string {
 }
 
 func estRevoke() string {
-	return chain("TUC="+markTUC, `if [ -z "$NAME" ]; then echo "Укажите NAME сертификата для отзыва"; else
+	return chain("TUC="+markRev, `if [ -z "$NAME" ]; then echo "Укажите NAME сертификата для отзыва"; else
   echo revoke | openssl cms -sign -signer "$NAME.crt" -inkey "$NAME.key" -binary -nodetach -outform DER |
   curl -sSf --data-binary @- "$TUC/revoke"; echo
 fi`)
 }
 
-// opensslImport splits $NAME.pfx into $NAME.crt, the certificate followed
-// by the CA chain, and $NAME.key, the key without a password, as the enroll
-// with openssl makes them.
-func opensslImport() string {
-	return chain("NAME="+markName, "PASS="+markPass,
-		`openssl pkcs12 -in "$NAME.pfx" -passin pass:"$PASS" -nokeys -out "$NAME.crt"`,
-		`(umask 077; openssl pkcs12 -in "$NAME.pfx" -passin pass:"$PASS" -nocerts -nodes -out "$NAME.key")`)
+// A PFX is fetched into a private temporary directory $T and installed from
+// there; the directory goes whether the steps succeed or not, and the
+// command keeps their status. Issued, it comes from the HTTPS address with
+// the request of the page; imported, from the base64 of the page.
+const cleanup = `; e=$?; rm -rf "$T"; [ $e = 0 ]`
+
+func issuePFX(ps bool) string {
+	if ps {
+		return psChain("$TUC = \""+markTUCS+"\"", `[IO.File]::WriteAllBytes("$T\r.json", [Convert]::FromBase64String(`+field("new.json64", true)+`))`,
+			`curl.exe -sSf -H "Content-Type: application/json" --data-binary "@$T\r.json" -o "$T\p.pfx" "$TUC/pfx"`)
+	}
+	return chain("TUC="+markTUCS, `curl -sSf -H "Content-Type: application/json" --data-binary `+field("new.json", false)+` -o "$T/p.pfx" "$TUC/pfx"`)
 }
 
-// posixImport installs $FILE.pfx into CryptoPro with a key without a
-// password, and its root, which the PFX does not make trusted; NAME is its
-// CN, as the CryptoPro revoke command finds the certificate.
-func posixImport(path, root string) string {
-	return chain("export PATH=$PATH:"+path, "FILE="+markName, "NAME="+markCN, "PASS="+markPass,
-		`certmgr -inst -pfx -file "$FILE.pfx" -pin "$PASS" -newpin ""`,
-		`curl -sSf -o "$FILE.root.cer" "`+root+`.crt"`, `certmgr -inst -store uRoot -file "$FILE.root.cer"`)
+func decodePFX(group, decode string) string {
+	return `printf %s ` + field(group+".b64", false) + ` | ` + decode + ` > "$T/p.pfx"`
 }
 
-func psImport(root string) string {
-	return psChain(`$env:Path += ";C:\Program Files\Crypto Pro\CSP"`, "$FILE = "+markNamePS, "$NAME = "+markCNPS, "$PASS = "+markPassPS,
-		`certmgr -inst -pfx -file "$FILE.pfx" -pin $PASS`,
-		`if ($LASTEXITCODE -eq 0) { curl.exe -sSf -o "$FILE.root.cer" "`+root+`.crt" }`,
-		`if ($LASTEXITCODE -eq 0) { certmgr -inst -store uRoot -file "$FILE.root.cer" }`)
+// opensslPFX installs the PFX as the enroll with openssl does: $NAME.crt,
+// the certificate followed by the CA chain, and $NAME.key without a password.
+func opensslPFX(group string) string {
+	get := decodePFX(group, "openssl base64 -d -A")
+	if group == "new" {
+		get = issuePFX(false)
+	}
+	return chain("NAME="+field(group+".name", false), "PASS="+field(group+".pass", false), "T=$(mktemp -d)", get,
+		`openssl pkcs12 -in "$T/p.pfx" -passin pass:"$PASS" -nokeys -out "$NAME.crt"`,
+		`(umask 077; openssl pkcs12 -in "$T/p.pfx" -passin pass:"$PASS" -nocerts -nodes -out "$NAME.key")`) + cleanup
+}
+
+// posixPFX installs the PFX into CryptoPro with a key without a password,
+// and its root, which the PFX does not make trusted; SHA1 is the thumbprint
+// of its certificate, the one with the key among those certmgr reports.
+func posixPFX(path, root, group string) string {
+	get := decodePFX(group, "base64 -d")
+	if group == "new" {
+		get = issuePFX(false)
+	}
+	return chain("export PATH=$PATH:"+path, "PASS="+field(group+".pass", false), "T=$(mktemp -d)", get,
+		`{ certmgr -inst -pfx -file "$T/p.pfx" -pin "$PASS" -newpin "" > "$T/out" || { cat "$T/out"; false; }; }`,
+		`SHA1=$(awk '/^SHA1 Thumbprint/ {s = $NF} /^PrivateKey Link *: Yes/ {print s; exit}' "$T/out")`, `echo "SHA1=$SHA1"`,
+		`curl -sSf -o "$T/root.cer" "`+root+`.crt"`, `certmgr -inst -store uRoot -file "$T/root.cer"`) + cleanup
+}
+
+func psPFX(root, group string) string {
+	get := `[IO.File]::WriteAllBytes("$T\p.pfx", [Convert]::FromBase64String(` + field(group+".b64", true) + `))`
+	install := `$out = certmgr -inst -pfx -file "$T\p.pfx" -pin $PASS`
+	if group == "new" {
+		get = issuePFX(true)
+		install = `if ($LASTEXITCODE -eq 0) { ` + install + ` }`
+	}
+	return psChain(`$env:Path += ";C:\Program Files\Crypto Pro\CSP"`, "$PASS = "+field(group+".pass", true),
+		"$T = Join-Path $env:TEMP ([guid]::NewGuid())", "New-Item -ItemType Directory $T | Out-Null", get, install,
+		`if ($LASTEXITCODE -eq 0) { foreach ($l in $out) { if ($l -match '^SHA1 Thumbprint\s*:\s*(\w+)') { $s = $Matches[1] } elseif ($l -match '^PrivateKey Link\s*:\s*Yes') { $SHA1 = $s; break } }; "SHA1=$SHA1" } else { $out }`,
+		`if ($LASTEXITCODE -eq 0) { curl.exe -sSf -o "$T\root.cer" "`+root+`.crt" }`,
+		`if ($LASTEXITCODE -eq 0) { certmgr -inst -store uRoot -file "$T\root.cer" }`,
+		"Remove-Item -Recurse -Force $T")
 }
 
 // estVerify checks $NAME.crt, the certificate followed by its CA chain,
@@ -230,54 +282,56 @@ fi`
 // posixVerify checks the chain of the certificate CN=$NAME in the CryptoPro
 // store, revocation included.
 func posixVerify(path string) string {
-	return chain("export PATH=$PATH:"+path, `if [ -z "$NAME" ]; then echo "Укажите NAME сертификата"; else
-  `+posixDN+`
-  certmgr -list -store uMy -dn "$DN" -chain | grep "Certificate chain"
+	return chain("export PATH=$PATH:"+path, `if [ -z "$SHA1" ]; then echo "Укажите SHA1 сертификата"; else
+  certmgr -list -store uMy -thumbprint "$SHA1" -chain | grep "Certificate chain"
 fi`)
 }
 
 func psVerify() string {
-	return psChain(`$env:Path += ";C:\Program Files\Crypto Pro\CSP"`, `if (-not $NAME) { "Укажите NAME сертификата" } else {
-  `+psDN+`
-  certmgr -list -store uMy -dn $DN -chain | Select-String "Certificate chain"
+	return psChain(`$env:Path += ";C:\Program Files\Crypto Pro\CSP"`, `if (-not $SHA1) { "Укажите SHA1 сертификата" } else {
+  certmgr -list -store uMy -thumbprint $SHA1 -chain | Select-String "Certificate chain"
 }`)
 }
 
-// pfxRevoke revokes with the key of $NAME.pfx, through openssl: of the PFX
-// downloaded last on the page, or else of NAME and PASS set in the shell.
+// pfxRevoke revokes with the key of the PFX of the page, through openssl.
 func pfxRevoke() string {
-	return chain("TUC="+markTUC, markSetPFX, `if [ -z "$NAME" ] || [ -z "$PASS" ]; then echo "Укажите NAME — имя файла PFX без .pfx — и PASS — его пароль"; else
-  (umask 077; openssl pkcs12 -in "$NAME.pfx" -passin pass:"$PASS" -nodes -out "$NAME.pem") &&
-  echo revoke | openssl cms -sign -signer "$NAME.pem" -binary -nodetach -outform DER |
-  curl -sSf --data-binary @- "$TUC/revoke"; echo; rm -f "$NAME.pem"
-fi`)
+	return chain("TUC="+markRev, "PASS="+field("rev.pass", false), "T=$(mktemp -d)", decodePFX("rev", "openssl base64 -d -A"),
+		`(umask 077; openssl pkcs12 -in "$T/p.pfx" -passin pass:"$PASS" -nodes -out "$T/p.pem")`,
+		`echo revoke | openssl cms -sign -signer "$T/p.pem" -binary -nodetach -outform DER |
+  curl -sSf --data-binary @- "$TUC/revoke"`) + `; e=$?; echo; rm -rf "$T"; [ $e = 0 ]`
 }
 
-// commands are the enroll, PFX import and revoke commands of the CA at its
-// publication address url, with EST at est and the root at root, with keys
-// of a: of a PFX, of openssl over EST and of CryptoPro for each OS.
-func commands(url, est, root string, a algo) []osCommands {
+// commands are the enroll, PFX issue and import, verify and revoke commands
+// of the CA at the addresses u, the root at root, with keys of a: of a PFX,
+// of openssl over EST and of CryptoPro for each OS.
+func commands(u urls, root string, a algo) []osCommands {
 	type osDef struct {
 		id, title, tool string
 		enroll          func(p enrollPurpose, chain bool) string
-		imp, verify     string
-		revoke          string
+		pfx             func(group string) string
+		verify, revoke  string
 	}
 	posix := func(path string) func(enrollPurpose, bool) string {
 		return func(p enrollPurpose, chain bool) string { return posixEnroll(path, a, p, chain) }
 	}
 	ps := func(p enrollPurpose, chain bool) string { return psEnroll(a, p, chain) }
 	openssl := func(p enrollPurpose, chain bool) string { return estEnroll(a, p, chain) }
+	posixPFXAt := func(path string) func(string) string {
+		return func(group string) string { return posixPFX(path, root, group) }
+	}
 	defs := []osDef{
-		{"pfx", "PFX", "pfx", nil, "", "", pfxRevoke()},
-		{"openssl", "OpenSSL", "openssl", openssl, opensslImport(), estVerify(root, url), estRevoke()},
-		{"linux", "Linux", "cryptopro", posix("/opt/cprocsp/bin/amd64"), posixImport("/opt/cprocsp/bin/amd64", root), posixVerify("/opt/cprocsp/bin/amd64"), posixRevoke("/opt/cprocsp/bin/amd64")},
-		{"windows", "Windows", "cryptopro", ps, psImport(root), psVerify(), psRevoke()},
-		{"macos", "macOS", "cryptopro", posix("/opt/cprocsp/bin"), posixImport("/opt/cprocsp/bin", root), posixVerify("/opt/cprocsp/bin"), posixRevoke("/opt/cprocsp/bin")},
+		{"pfx", "PFX", "pfx", nil, nil, "", pfxRevoke()},
+		{"openssl", "OpenSSL", "openssl", openssl, opensslPFX, estVerify(root, u.tuc), estRevoke()},
+		{"linux", "Linux", "cryptopro", posix("/opt/cprocsp/bin/amd64"), posixPFXAt("/opt/cprocsp/bin/amd64"), posixVerify("/opt/cprocsp/bin/amd64"), posixRevoke("/opt/cprocsp/bin/amd64")},
+		{"windows", "Windows", "cryptopro", ps, func(group string) string { return psPFX(root, group) }, psVerify(), psRevoke()},
+		{"macos", "macOS", "cryptopro", posix("/opt/cprocsp/bin"), posixPFXAt("/opt/cprocsp/bin"), posixVerify("/opt/cprocsp/bin"), posixRevoke("/opt/cprocsp/bin")},
 	}
 	var out []osCommands
 	for _, d := range defs {
-		c := osCommands{ID: d.id, Title: d.title, Tool: d.tool, Import: script(d.imp, url, est), Verify: script(d.verify, url, est), Revoke: script(d.revoke, url, est)}
+		c := osCommands{ID: d.id, Title: d.title, Tool: d.tool, Verify: script(d.verify, u), Revoke: script(d.revoke, u)}
+		if d.pfx != nil {
+			c.PFX, c.Import = script(d.pfx("new"), u), script(d.pfx("pfx"), u)
+		}
 		// openssl puts the chain into $NAME.crt; with CryptoPro it is a choice
 		responses := []string{"chain"}
 		if d.tool == "cryptopro" {
@@ -288,8 +342,7 @@ func commands(url, est, root string, a algo) []osCommands {
 				break
 			}
 			for _, response := range responses {
-				c.Enroll = append(c.Enroll, enrollCommand{p.id, response,
-					script(d.enroll(p, response == "chain"), url, est)})
+				c.Enroll = append(c.Enroll, enrollCommand{p.id, response, script(d.enroll(p, response == "chain"), u)})
 			}
 		}
 		out = append(out, c)
