@@ -69,7 +69,7 @@ For an existing checkout run `git submodule update --init --recursive`.
 Build and publish manually from the repository root:
 
 ```sh
-version=$(cat VERSION)
+version=v$(cat VERSION)
 docker build -t "pidmitrius/tuc:$version" .
 docker run --rm "pidmitrius/tuc:$version" version
 docker tag "pidmitrius/tuc:$version" pidmitrius/tuc:latest
@@ -81,7 +81,7 @@ Set deployment configuration; these variables contain **no master secret**:
 
 ```sh
 export COMPOSE_PROJECT_NAME=tuc
-export TUC_TAG=1.0.0 TUC_HOST=tuc.example
+export TUC_TAG=v1.0.0 TUC_HOST=tuc.example
 export TUC_BASE=https://tuc.example TUC_PUBLISH=http://tuc.example
 export TUC_UID=10001 TUC_GID=10001
 export TUC_TLS_DIR=/srv/tuc/tls TUC_HTTPS_BIND=0.0.0.0:443 TUC_HTTP_BIND=0.0.0.0:80

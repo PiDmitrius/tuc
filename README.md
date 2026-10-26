@@ -236,7 +236,7 @@ Initialize the pinned MiniPKI submodule with `git submodule update --init --recu
 `tuc version`. From the repository root:
 
 ```sh
-version=$(cat VERSION)
+version=v$(cat VERSION)
 docker build -t "pidmitrius/tuc:$version" .
 docker run --rm "pidmitrius/tuc:$version" version
 docker tag "pidmitrius/tuc:$version" pidmitrius/tuc:latest
