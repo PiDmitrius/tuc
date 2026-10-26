@@ -1,0 +1,24 @@
+[Unit]
+Description=TUC certificate authority
+After=network.target
+
+[Service]
+User=tuc
+Group=tuc
+EnvironmentFile=/etc/tuc/tuc.env
+RuntimeDirectory=tuc
+RuntimeDirectoryMode=0700
+StateDirectory=tuc
+StateDirectoryMode=0700
+UMask=0077
+LimitCORE=0
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ExecStart=/usr/local/bin/tuc serve -base ${TUC_BASE} -publish ${TUC_PUBLISH} -listen 127.0.0.1:8080 -db /var/lib/tuc/tuc.db
+Restart=on-failure
+TimeoutStopSec=60
+
+[Install]
+WantedBy=multi-user.target

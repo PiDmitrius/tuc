@@ -1,0 +1,5 @@
+#!/bin/sh
+set -eu
+export LD_LIBRARY_PATH=/opt/tuc/current/openssl/lib
+export MINIPKI_GOST_ENGINE=/opt/tuc/current/openssl/lib/engines-3/gost.so
+exec /opt/tuc/current/bin/tuc "$@"
