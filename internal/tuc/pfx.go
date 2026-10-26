@@ -134,19 +134,20 @@ func nameCN(cn string) []byte {
 // IssuePFX makes a key of a, by default the algorithm of n, and a leaf
 // certificate of n for it named cn, with the key usages of its key and,
 // for the TLS use u, the DNS name fqdn, and returns them
-// with the chain of n in a PKCS#12 under password.
-func (s *Service) IssuePFX(n *node, a algo, cn string, u purpose, fqdn, password string) ([]byte, error) {
+// with the chain of n in a PKCS#12 under password, and the SHA-1 of the
+// certificate.
+func (s *Service) IssuePFX(n *node, a algo, cn string, u purpose, fqdn, password string) ([]byte, string, error) {
 	if a == "" {
 		a = n.alg
 	}
 	if _, ok := algoDefs[a]; !ok {
-		return nil, errors.New("неизвестный алгоритм")
+		return nil, "", errors.New("неизвестный алгоритм")
 	}
 	if cn == "" || utf8.RuneCountInString(cn) > 64 {
-		return nil, errors.New("имя — от 1 до 64 символов")
+		return nil, "", errors.New("имя — от 1 до 64 символов")
 	}
 	if password == "" || len(password) > 128 {
-		return nil, errors.New("пароль — от 1 до 128 байт")
+		return nil, "", errors.New("пароль — от 1 до 128 байт")
 	}
 	var extra []cryptobyte.String
 	if u.tls() {
@@ -157,30 +158,31 @@ func (s *Service) IssuePFX(n *node, a algo, cn string, u purpose, fqdn, password
 		var err error
 		extra, err = tlsExtensions(names, u)
 		if err != nil {
-			return nil, err
+			return nil, "", err
 		}
 	}
 	subject := nameCN(cn)
 	if err := checkName(subject); err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	key, raw, err := s.newKey(a)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	defer key.Close()
 	clear(raw)
 	spki, err := key.SPKI()
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	cert, err := s.issueLeaf(n, subject, spki, extra)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
 	var chain [][]byte
 	for c := n; c != nil; c = c.parent {
 		chain = append(chain, c.der)
 	}
-	return key.PKCS12(cert, chain, password)
+	p12, err := key.PKCS12(cert, chain, password)
+	return p12, certID(cert), err
 }

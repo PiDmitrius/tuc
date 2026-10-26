@@ -72,7 +72,7 @@ a{color:var(--accent)}
 .position .kind{overflow:hidden;text-overflow:ellipsis;min-width:0} .position>a{flex:none}
 .hier{max-height:18rem;overflow:auto} .body .rows{margin:0}
 .hier h3{font-size:12px;font-weight:400;color:var(--text2);margin:6px 0 2px}
-.hier ol{list-style:none} .hier li{display:flex;gap:8px;align-items:baseline;padding:3px 0}
+.hier ol{list-style:none} .hier li{display:flex;gap:8px;align-items:baseline;padding:3px 0} .hier .cv{padding:1px 8px;font-size:12px}
 .hier .lvl{flex:none;width:2ch;text-align:right;color:var(--text2)} .hier .cn{min-width:0;overflow-wrap:anywhere}
 .hier .id{flex:none;margin-left:auto;color:var(--text2);font-size:11px}
 .title{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
@@ -87,7 +87,7 @@ a{color:var(--accent)}
 button,a.button{font:inherit;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);padding:4px 12px;cursor:pointer;text-decoration:none;display:inline-block}
 button:hover,a.button:hover{border-color:var(--accent);background:var(--tint)}
 /* the link to CertView carries its logo, the certview shield */
-#certview{display:inline-flex;align-items:center;gap:6px} #certview svg{width:14px;height:14px;flex:none}
+.cv{display:inline-flex;align-items:center;gap:6px} .cv svg{width:14px;height:14px;flex:none}
 button.primary{background:var(--brand);border-color:var(--brand);color:#fff} button.primary:hover{background:var(--brand2);border-color:var(--brand2)}
 button.danger{border-color:var(--red);color:var(--red)} button.danger:hover{background:#ffebe9}
 button:disabled{opacity:.5;cursor:default}
@@ -101,11 +101,6 @@ input[type=text],input[type=password],input[type=number],select,textarea{width:1
 .seg label:first-child{border-left:none}
 .seg input{position:absolute;opacity:0;pointer-events:none}
 .seg label:has(input:checked){background:var(--tint);color:var(--brand);font-weight:600}
-.pick{margin-top:6px;border:1px solid var(--border);border-radius:6px;overflow:hidden}
-.pick button{display:flex;gap:8px;justify-content:space-between;width:100%;border:0;border-top:1px solid var(--border);border-radius:0;background:var(--surface);padding:6px 10px;text-align:left;font-weight:400}
-.pick button:first-child{border-top:0}
-.pick button[aria-selected=true]{background:var(--tint);color:var(--brand);font-weight:600}
-.pick .id{color:var(--text2)}
 .seg label:has(input:focus-visible){outline:2px solid var(--accent);outline-offset:-2px}
 .controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
 pre{background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;white-space:pre-wrap;word-break:break-all;margin-top:10px}
@@ -121,7 +116,7 @@ pre{background:var(--bg);border:1px solid var(--border);border-radius:6px;paddin
    open row with a rounded brand bar outside the box on its left, short of
    the row's top and bottom. The rows round the corners themselves, as the
    box lets the bar out. */
-#public-cas>a{text-decoration:none;color:inherit} #public-cas .id{color:var(--text2);font-size:12px} .rows{background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:16px} .rows:not(:has(>:not(.hidden))){display:none}
+#public-cas a.ca{display:flex;flex:1;align-items:center;gap:8px;min-width:0;text-decoration:none;color:inherit} #public-cas .id{color:var(--text2);font-size:12px} .rows{background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:16px} .rows:not(:has(>:not(.hidden))){display:none}
 .item{position:relative} .head{border-radius:inherit}
 .row:not(:has(>:not(.hidden))){display:none}
 .rows>.item:not(.hidden):not(.item:not(.hidden)~.item){border-radius:7px 7px 0 0}
@@ -230,6 +225,26 @@ const b64url = b64 => b64.replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/,
 const certview = b64 => "https://certview.deem.ru/#cert=" + b64url(b64);
 const pem = b64 => "-----BEGIN CERTIFICATE-----\n" + b64.match(/.{1,64}/g).join("\n") + "\n-----END CERTIFICATE-----\n";
 const when = s => s ? s.replace("T", " ").replace(/Z$/, " UTC").replace(/^(\d+)-(\d+)-(\d+)/, "$1.$2.$3") : "";
+// A certificate shown on a page opens in CertView first: a link with its
+// logo, to the DER of b64 or, for data-crt, of the certificate at that URL
+const cvLogo = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1 L14 3 V8 Q14 12 8 15 Q2 12 2 8 V3 Z" fill="#012B6E"/><path d="M5 8 L7 10 L11 6" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+function cvLink(a, b64) {
+  if (!a.querySelector("svg")) a.insertAdjacentHTML("afterbegin", cvLogo);
+  a.classList.add("button", "cv"); a.target = "_blank"; a.rel = "noopener noreferrer";
+  if (b64) a.href = certview(b64);
+  return a;
+}
+const derB64 = buf => { let s = ""; for (const b of new Uint8Array(buf)) s += String.fromCharCode(b); return btoa(s); };
+document.addEventListener("click", async e => {
+  const a = e.target.closest("a.cv[data-crt]");
+  if (!a) return;
+  e.preventDefault();
+  const w = open("", "_blank");
+  if (!w) return;
+  w.opener = null;
+  w.location.href = certview(derB64(await (await fetch(a.dataset.crt)).arrayBuffer()));
+});
+for (const a of $$("a.cv")) cvLink(a);
 </script>{{end}}
 
 {{define "index"}}{{template "head" "ТУЦ"}}
@@ -239,7 +254,7 @@ const when = s => s ? s.replace("T", " ").replace(/Z$/, " UTC").replace(/^(\d+)-
 <div class="row"><button class="primary" type="submit">Создать УЦ</button><span class="status" role="status"></span></div>
 </form></div></div>
 {{if .CAs}}<div class="rows" id="public-cas">{{range .CAs}}
-<a class="item head" href="/{{.ID}}"><span class="name">{{if eq .Level 1}}Корневой УЦ{{else}}Подчинённый УЦ · уровень {{.Level}}{{end}}</span><span class="b blue">{{.Alg.Name}}</span><span class="id">{{slice .ID 0 8}}</span><span class="meta">{{time .Created}}</span></a>
+<div class="item head"><a class="ca" href="/{{.ID}}"><span class="name">{{if eq .Level 1}}Корневой УЦ{{else}}Подчинённый УЦ · уровень {{.Level}}{{end}}</span><span class="b blue">{{.Alg.Name}}</span><span class="id">{{slice .ID 0 8}}</span><span class="meta">{{time .Created}}</span></a><a class="button cv" data-crt="/{{.ID}}.crt" href="/{{.ID}}.crt">CertView</a></div>
 {{end}}</div>{{else}}<p class="empty">Открытых УЦ пока нет</p>{{end}}
 </main>{{template "common"}}
 <script>openable($("#create-root")); caForm($("#root"), "/new", {});</script>
@@ -269,7 +284,7 @@ const when = s => s ? s.replace("T", " ").replace(/Z$/, " UTC").replace(/^(\d+)-
 <span class="b grey{{if not .Disabled}} hidden{{end}}" id="disabled-pill">Отключён</span>
 <span class="b solid hidden" id="pill-admin">Управление</span><span class="b blue hidden" id="pill-issue">Доступ по ссылке</span></div>
 <p class="facts">{{if .Revoked}}отозван {{time .Revoked}} · {{end}}до {{time .NotAfter}} · SHA-1 <span class="copy" tabindex="0">{{.ID}}</span></p>
-<div class="row"><a class="button" id="certview" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1 L14 3 V8 Q14 12 8 15 Q2 12 2 8 V3 Z" fill="#012B6E"/><path d="M5 8 L7 10 L11 6" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>CertView</a></div>
+<div class="row"><a class="button cv" id="certview" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1 L14 3 V8 Q14 12 8 15 Q2 12 2 8 V3 Z" fill="#012B6E"/><path d="M5 8 L7 10 L11 6" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>CertView</a></div>
 </div>
 
 
@@ -299,7 +314,7 @@ const when = s => s ? s.replace("T", " ").replace(/Z$/, " UTC").replace(/^(\d+)-
 <div class="row"><button class="primary" id="copy-enroll">Скопировать команду</button><button class="primary hidden" id="get-pfx">Выпустить PFX</button><span class="status" id="enroll-status" role="status"></span></div>
 <div class="hidden" id="pfx-result"><label class="field"><span>PFX (base64)</span><textarea readonly rows="3" id="pfx-b64"></textarea></label>
 <label class="field"><span>Пароль PFX</span><input type="text" readonly id="pfx-pass-out"></label>
-<div class="row"><button id="copy-b64">Скопировать base64</button><button id="copy-pass">Скопировать пароль</button><a class="button" id="pfx-file">Скачать файл</a></div>
+<div class="row"><a class="button cv hidden" id="pfx-cv" target="_blank" rel="noopener noreferrer">CertView</a><button id="copy-b64">Скопировать base64</button><button id="copy-pass">Скопировать пароль</button><a class="button" id="pfx-file">Скачать файл</a></div>
 <p class="note">После перезагрузки страницы PFX и пароль исчезнут.</p></div>
 <div class="hidden" id="pfx-import"><p style="margin-top:12px" id="imp-title"></p>
 <div id="imp-fields"><label class="field"><span>PFX (base64)</span><textarea rows="3" id="imp-b64" autocomplete="off"></textarea></label>
@@ -322,14 +337,11 @@ const when = s => s ? s.replace("T", " ").replace(/Z$/, " UTC").replace(/^(\d+)-
 <div class="controls" style="margin-top:8px"><span class="seg" role="group" aria-label="Назначение"><label><input type="checkbox" id="pl-client"> TLS-клиент</label></span></div>
 <div class="row"><button class="primary" id="pl-issue">Выпустить и установить</button><span class="status" id="pl-issue-status" role="status"></span></div></div>
 <p class="hidden" id="pl-closed">Для выпуска нужна ссылка выпуска.</p>
-<div class="hidden" id="pl-root"><p style="margin-top:12px">Корень УЦ не в доверенных: подпись и проверка не пройдут. Установите его:</p>
+<div class="hidden" id="pl-root"><p style="margin-top:12px">Цепочка до корня УЦ не доверенная: подпись и проверка не пройдут. Установите корень в доверенные:</p>
+<div class="controls" style="margin-top:6px"><span class="seg" role="radiogroup" aria-label="Операционная система">{{range .Commands}}{{if eq .Tool "cryptopro"}}<label><input type="radio" name="os5" value="{{.ID}}"> {{.Title}}</label>{{end}}{{end}}</span></div>
 <pre id="pl-root-cmd"></pre><div class="row"><button id="pl-root-copy">Скопировать команду</button></div></div>
-<div class="row" style="margin-top:14px"><span>Сертификаты этого УЦ</span><button id="pl-refresh">Обновить</button></div>
-<div class="pick hidden" id="pl-certs" role="listbox" aria-label="Сертификаты этого УЦ"></div>
-<p class="note" id="pl-info"></p>
-<div class="row"><button id="pl-check">Проверить</button><button id="pl-revoke">Отозвать</button><span class="status" id="pl-status" role="status"></span></div>
-<div class="hidden" id="pl-confirm"><p>Отзыв необратим: <span id="pl-confirm-cert"></span></p>
-<div class="row"><button id="pl-cancel">Отмена</button><button class="danger" id="pl-revoke-yes">Отозвать сертификат</button></div></div>
+<div class="row" style="margin-top:14px"><span>Сертификаты этого УЦ</span><button id="pl-refresh">Обновить</button><span class="status" id="pl-status" role="status"></span></div>
+<div class="rows" id="pl-certs" style="margin-top:8px"></div>
 </div></div></div>
 <div class="item" id="verify"><div class="head"><span class="name">Проверить сертификат</span></div>
 <div class="body">
@@ -358,9 +370,9 @@ const when = s => s ? s.replace("T", " ").replace(/Z$/, " UTC").replace(/^(\d+)-
 <div class="item" id="hier-row"><div class="head"><span class="name">Иерархия УЦ</span><span class="meta">уровень {{len .Chain}} · подчинённых УЦ: {{len .Children}}</span></div>
 <div class="body"><div class="hier" id="hier">
 <h3>Путь от корневого УЦ</h3>
-<ol>{{range .Chain}}<li{{if .Current}} aria-current="page"{{end}}><span class="lvl">{{.Level}}</span><span class="cn">{{if .Current}}<b>{{.CN}}</b>{{else}}<a href="/{{.ID}}">{{.CN}}</a>{{end}}{{if .Revoked}} <span class="b red">Отозван</span>{{end}}</span><span class="id">{{slice .ID 0 8}}</span></li>{{end}}</ol>
+<ol>{{range .Chain}}<li{{if .Current}} aria-current="page"{{end}}><span class="lvl">{{.Level}}</span><span class="cn">{{if .Current}}<b>{{.CN}}</b>{{else}}<a href="/{{.ID}}">{{.CN}}</a>{{end}}{{if .Revoked}} <span class="b red">Отозван</span>{{end}}</span><span class="id">{{slice .ID 0 8}}</span><a class="button cv" data-crt="/{{.ID}}.crt" href="/{{.ID}}.crt">CertView</a></li>{{end}}</ol>
 {{with .Children}}<h3>Подчинённые УЦ</h3>
-<ol>{{range .}}<li><span class="lvl">{{.Level}}</span><span class="cn"><a class="child" href="/{{.ID}}">{{.CN}}</a>{{if .Revoked}} <span class="b red">Отозван</span>{{end}}</span><span class="id">{{slice .ID 0 8}}</span></li>{{end}}</ol>{{else}}<h3>{{if .CanChild}}Подчинённых УЦ нет{{else}}Последний уровень иерархии: подчинённые УЦ не создаются{{end}}</h3>{{end}}
+<ol>{{range .}}<li><span class="lvl">{{.Level}}</span><span class="cn"><a class="child" href="/{{.ID}}">{{.CN}}</a>{{if .Revoked}} <span class="b red">Отозван</span>{{end}}</span><span class="id">{{slice .ID 0 8}}</span><a class="button cv" data-crt="/{{.ID}}.crt" href="/{{.ID}}.crt">CertView</a></li>{{end}}</ol>{{else}}<h3>{{if .CanChild}}Подчинённых УЦ нет{{else}}Последний уровень иерархии: подчинённые УЦ не создаются{{end}}</h3>{{end}}
 </div></div></div>
 </div>
 
@@ -374,7 +386,7 @@ const when = s => s ? s.replace("T", " ").replace(/Z$/, " UTC").replace(/^(\d+)-
 <tr><td>Действует</td><td>{{time .NotBefore}} — {{time .NotAfter}}</td></tr>
 <tr><td>Алгоритм</td><td>{{.Alg.Long}}</td></tr>
 </table>
-<div class="row"><a class="button" href="{{.URL}}.crt">Скачать .crt</a><button id="copy-pem">Скопировать PEM</button><a class="button" href="{{.URL}}.crl">CRL</a></div>
+<div class="row"><a class="button cv" id="cert-cv" target="_blank" rel="noopener noreferrer">CertView</a><a class="button" href="{{.URL}}.crt">Скачать .crt</a><button id="copy-pem">Скопировать PEM</button><a class="button" href="{{.URL}}.crl">CRL</a></div>
 </div></div>
 <div class="item" id="revoke"><div class="head"><span class="name">Отозвать свой сертификат</span></div>
 <div class="body">
@@ -470,7 +482,7 @@ const value = name => $("input[name=" + name + "]:checked").value;
 // revoke block stays there.
 function pick(name, value) {
   if (name !== "tool2") localStorage.setItem("tuc-" + name, value);
-  for (const r of $$(name === "os" ? "input[name=os],input[name=os2],input[name=os3],input[name=os4]" : name === "tool" ? "input[name=tool],input[name=tool2]" : "input[name=" + name + "]")) r.checked = r.value === value;
+  for (const r of $$(name === "os" ? "input[name=os],input[name=os2],input[name=os3],input[name=os4],input[name=os5]" : name === "tool" ? "input[name=tool],input[name=tool2]" : "input[name=" + name + "]")) r.checked = r.value === value;
   // the check and the revoke start where the issue, or the import of a PFX, puts the certificate
   if (name === "tool" || name === "imp") for (const r of $$("input[name=where]")) r.checked = r.value === (value === "cryptopro" ? "cryptopro" : "openssl");
   if (name === "imp") for (const r of $$("input[name=tool2]")) r.checked = r.value === (value === "cryptopro" ? "cryptopro" : "pfx");
@@ -598,6 +610,10 @@ $("#get-pfx").onclick = async e => {
     const encoded = btoa(bin);
     if (pfxURL) URL.revokeObjectURL(pfxURL);
     pfxURL = URL.createObjectURL(blob);
+    // the certificate of the PFX opens in CertView
+    const sha1 = r.headers.get("X-TUC-Certificate");
+    $("#pfx-cv").classList.toggle("hidden", !sha1);
+    if (sha1) cvLink($("#pfx-cv"), derB64(await (await fetch("/" + ca.id + "/cert/" + sha1 + ".crt")).arrayBuffer()));
     $("#pfx-file").href = pfxURL; $("#pfx-file").download = fileName(name) + ".pfx";
     $("#pfx-b64").value = encoded; $("#pfx-pass-out").value = pass;
     $("#imp-b64").value = encoded; $("#imp-pass").value = pass; pfxName = fileName(name);
@@ -618,7 +634,7 @@ $("#copy-pass").onclick = e => copyText($("#pfx-pass-out").value, e.target, "С�
 const remembered = (name, def) => { const v = localStorage.getItem("tuc-" + name); return $$("input[name=" + name + "]").some(r => r.value === v) ? v : def; };
 for (const r of $$("input[name=imp]")) r.checked = r.value === remembered("imp", "openssl");
 for (const r of $$("input[name=dest]")) r.checked = r.value === remembered("dest", "browser");
-for (const r of $$("input[name=os],input[name=os2],input[name=os3],input[name=os4]")) r.checked = r.value === remembered("os", /Win/.test(navigator.platform) ? "windows" : /Mac/.test(navigator.platform) ? "macos" : "linux");
+for (const r of $$("input[name=os],input[name=os2],input[name=os3],input[name=os4],input[name=os5]")) r.checked = r.value === remembered("os", /Win/.test(navigator.platform) ? "windows" : /Mac/.test(navigator.platform) ? "macos" : "linux");
 pick("tool", remembered("tool", "pfx"));
 $("#copy-enroll").onclick = e => { const pfx = value("tool") === "pfx"; if (check(pfx, pfx)) copyText(shown(pfx ? "pre.pfxcmd" : "pre.enroll").textContent, e.target, "Скопировать команду"); };
 // a PFX command needs the base64 of the PFX
@@ -635,7 +651,7 @@ const plExtensions = ["pfhgbfnnjiafkhfdkmpiflachepdcjod", "iifchhfnnmpdbibifmljn
 // provider type and key length, ECDSA doubled as CryptoPro takes it, and the request hash
 const plAlgos = {gost256: [80, 0, ""], gost512: [81, 0, ""], rsa2048: [24, 2048, "2.16.840.1.101.3.4.2.1"], rsa3072: [24, 3072, "2.16.840.1.101.3.4.2.1"],
   rsa4096: [24, 4096, "2.16.840.1.101.3.4.2.1"], ecdsa256: [16, 512, "2.16.840.1.101.3.4.2.1"], ecdsa384: [16, 768, "2.16.840.1.101.3.4.2.2"], ecdsa521: [16, 1056, "2.16.840.1.101.3.4.2.3"]};
-let plConnect, plObject, plCerts = [], plChosen;
+let plConnect, plObject;
 const plError = e => (e && (e.message || e.value)) || String(e);
 const plCreate = name => plObject.CreateObjectAsync(name);
 function plLoad(id) {
@@ -694,38 +710,107 @@ function plRefreshIssue() {
   $("#pl-form").classList.toggle("hidden", !can);
   $("#pl-closed").classList.toggle("hidden", can);
 }
+// The certificates of this CA in the store, as the issued list shows them:
+// TUC tells which it issued and which it revoked
+const plEl = (tag, text, cls) => { const e = document.createElement(tag); if (text) e.textContent = text; if (cls) e.className = cls; return e; };
 async function plList(select) {
-  const st = $("#pl-status");
-  const store = await plCreate("CAdESCOM.Store");
-  await store.Open(2, "My", 2);
-  const all = await store.Certificates, found = [];
-  for (let i = 1, n = await all.Count; i <= n; i++) {
-    const c = await all.Item(i), sha1 = await c.Thumbprint;
-    // TUC knows the certificates this CA issued
-    if ((await fetch("/" + ca.id + "/cert/" + sha1, {method: "HEAD"})).ok)
-      found.push({c, sha1, cn: (await c.SubjectName).replace(/^.*?CN=("?)(.*?)\1(,.*)?$/, "$2"), till: new Date(await c.ValidToDate), key: await c.HasPrivateKey()});
-  }
-  await store.Close();
-  plCerts = found.sort((a, b) => b.till - a.till);
-  plChosen = plCerts.some(x => x.sha1 === select) ? select : plCerts.some(x => x.sha1 === plChosen) ? plChosen : plCerts[0]?.sha1;
-  $("#pl-certs").replaceChildren(...plCerts.map(x => {
-    const b = document.createElement("button");
-    b.type = "button"; b.setAttribute("role", "option"); b.dataset.sha1 = x.sha1;
-    b.append(Object.assign(document.createElement("span"), {textContent: x.cn}), Object.assign(document.createElement("span"), {className: "id", textContent: "до " + x.till.toISOString().slice(0, 10)}));
-    b.onclick = () => { plChosen = x.sha1; $("#pl-confirm").classList.add("hidden"); plInfo(); };
-    return b;
-  }));
-  $("#pl-certs").classList.toggle("hidden", !plCerts.length);
-  plInfo();
-  status(st, plCerts.length ? "" : "В хранилище нет сертификатов этого УЦ");
+  const st = $("#pl-status"), btn = $("#pl-refresh");
+  btn.disabled = true; status(st, "Обновляем…");
+  try {
+    const store = await plCreate("CAdESCOM.Store");
+    await store.Open(2, "My", 2);
+    const all = await store.Certificates, found = [];
+    for (let i = 1, n = await all.Count; i <= n; i++) {
+      const c = await all.Item(i), sha1 = await c.Thumbprint;
+      const r = await fetch("/" + ca.id + "/cert/" + sha1 + "/status");
+      if (!r.ok) continue;
+      const {revoked} = await r.json();
+      found.push({c, sha1, revoked, cn: (await c.SubjectName).replace(/^.*?CN=("?)(.*?)\1(,.*)?$/, "$2"),
+        from: await c.ValidFromDate, till: await c.ValidToDate, key: await c.HasPrivateKey(), b64: (await c.Export(0)).replace(/\s+/g, "")});
+    }
+    await store.Close();
+    const open = new Set($$("#pl-certs .item.open").map(e => e.dataset.id));
+    if (select) open.add(select);
+    found.sort((a, b) => new Date(b.from) - new Date(a.from));
+    $("#pl-certs").replaceChildren();
+    for (const x of found) plRow(x, open.has(x.sha1));
+    status(st, found.length ? "" : "В хранилище нет сертификатов этого УЦ");
+  } catch (e) { status(st, plError(e), "error"); }
+  finally { btn.disabled = false; }
 }
-const plSelected = () => plCerts.find(x => x.sha1 === plChosen);
-function plInfo(result) {
-  const x = plSelected();
-  for (const b of $$("#pl-certs button")) b.setAttribute("aria-selected", b.dataset.sha1 === plChosen);
-  for (const b of ["#pl-check", "#pl-revoke"]) $(b).disabled = !x;
-  $("#pl-revoke").disabled = !x || !x.key;
-  $("#pl-info").textContent = x ? "SHA-1 " + x.sha1 + (x.key ? "" : " · без закрытого ключа") + (result ? " · " + result : "") : "";
+function plRow(x, open) {
+  const item = plEl("div", null, "item cert"), head = plEl("div", null, "head"), body = plEl("div", null, "body");
+  item.dataset.id = x.sha1; item.append(head, body); $("#pl-certs").append(item);
+  const now = new Date(), expired = new Date(x.till) < now, early = new Date(x.from) > now;
+  const state = plEl("span", x.revoked ? "Отозван" : expired ? "Срок истёк" : early ? "Ещё не действует" : "Действует", "b " + (x.revoked ? "red" : expired || early ? "grey" : "green"));
+  const act = plEl("span", null, "actions");
+  const dl = plEl("a", "Скачать", "button"); dl.href = "/" + ca.id + "/cert/" + x.sha1 + ".crt";
+  act.append(cvLink(plEl("a", "CertView"), x.b64), dl);
+  head.append(plEl("span", x.cn, "name"), state, plEl("span", "до " + when(new Date(x.till).toISOString().replace(/\.\d+Z$/, "Z")), "meta"), act);
+  const t = plEl("table", null, "props"); body.append(t);
+  const prop = (k, v, copy) => { const tr = t.insertRow(); tr.insertCell().textContent = k; const td = tr.insertCell(); td.textContent = v; if (copy) { td.className = "copy"; td.tabIndex = 0; copyCell(td, v); } return td; };
+  prop("SHA-1", x.sha1, true);
+  prop("Закрытый ключ", x.key ? "есть" : "нет");
+  if (x.revoked) prop("Отозван", when(x.revoked));
+  let checked;
+  const r = plEl("div", null, "row"), st = plEl("span", null, "status");
+  const check = plEl("button", "Проверить"), rv = plEl("button", "Отозвать", "danger"), del = plEl("button", "Удалить", "danger");
+  r.append(check); if (!x.revoked && x.key) r.append(rv); r.append(del, st); body.append(r);
+  check.onclick = async () => {
+    check.disabled = true; status(st, "Проверяем…");
+    const out = [];
+    try {
+      if (x.key) {
+        try {
+          const sig = await plSign(x, "TUC " + new Date().toISOString());
+          await (await plCreate("CAdESCOM.CadesSignedData")).VerifyCades(sig, 1, false);
+          out.push("подпись верна");
+        } catch (err) {
+          out.push("подпись: " + plError(err));
+          if (/0x800B010A|0x800B0109/i.test(plError(err))) plUntrusted();
+        }
+      }
+      let valid;
+      try { valid = await (await x.c.IsValid()).Result; out.push(valid ? "сертификат действителен" : "сертификат недействителен"); }
+      catch (err) { out.push("сертификат: " + plError(err)); }
+      if (x.revoked && valid) out.push("отзыв ещё не виден: CRL в кэше");
+      (checked ||= prop("На этом компьютере", "")).textContent = out.join(" · ");
+      status(st, "");
+    } finally { check.disabled = false; }
+  };
+  // a confirmation takes the place of the actions, as the issued list has it
+  const confirm = (text, label, run) => {
+    r.classList.add("hidden");
+    const conf = plEl("div", null, "row"), cst = plEl("span", null, "status"), go = plEl("button", label, "danger"), no = plEl("button", "Отмена");
+    conf.append(plEl("span", text), go, no, cst); body.append(conf);
+    no.onclick = () => { conf.remove(); r.classList.remove("hidden"); };
+    go.onclick = async () => {
+      go.disabled = true;
+      try { await run(cst); }
+      catch (err) { status(cst, plError(err), "error"); go.disabled = false; }
+    };
+  };
+  rv.onclick = () => confirm("Отменить отзыв нельзя.", "Отозвать сертификат", async cst => {
+    status(cst, "Отзываем…");
+    const res = await fetch("/" + ca.id + "/revoke", {method: "POST", body: await plSign(x, "revoke")});
+    if (!res.ok) throw new Error((await res.text()).trim() || "ошибка " + res.status);
+    await plList(x.sha1);
+  });
+  del.onclick = () => confirm(x.key ? "Удалить сертификат и контейнер ключа с этого компьютера? В УЦ сертификат не отзывается." : "Удалить сертификат с этого компьютера? В УЦ он не отзывается.", "Удалить", async cst => {
+    status(cst, "Удаляем…");
+    const store = await plCreate("CAdESCOM.Store");
+    await store.Open(2, "My", 2);
+    try {
+      const found = await (await store.Certificates).Find(0, x.sha1);
+      if (await found.Count) {
+        const c = await found.Item(1);
+        if (await c.HasPrivateKey()) await (await c.PrivateKey).Delete();
+        await store.Remove(c);
+      }
+    } finally { await store.Close(); }
+    await plList();
+  });
+  openable(item)(open);
 }
 async function plSign(x, text) {
   const signer = await plCreate("CAdESCOM.CPSigner");
@@ -748,8 +833,9 @@ function plUntrusted() {
   $("#pl-root-cmd").textContent = plRootCommand();
   $("#pl-root").classList.remove("hidden");
 }
+for (const r of $$("input[name=os5]")) r.addEventListener("change", () => { pick("os", r.value); $("#pl-root-cmd").textContent = plRootCommand(); });
 $("#pl-root-copy").onclick = e => copyText($("#pl-root-cmd").textContent, e.target, "Скопировать команду");
-$("#pl-refresh").onclick = async () => { try { await plList(plChosen); } catch (e) { status($("#pl-status"), plError(e), "error"); } };
+$("#pl-refresh").onclick = () => plList();
 $("#pl-issue").onclick = async e => {
   const btn = e.target, st = $("#pl-issue-status"), cn = $("#pl-name").value.trim(), algo = $("#pl-algo").value, [type, len, hash] = plAlgos[algo];
   if (!cn) { $("#pl-name").focus(); return status(st, "Укажите имя", "error"); }
@@ -802,50 +888,9 @@ $("#pl-issue").onclick = async e => {
   } catch (err) { status(st, "Не удалось выпустить: " + plError(err), "error"); }
   finally { btn.disabled = false; }
 };
-$("#pl-check").onclick = async e => {
-  const x = plSelected(), st = $("#pl-status");
-  if (!x) return;
-  e.target.disabled = true; status(st, "Проверка…");
-  const out = [];
-  try {
-    if (x.key) {
-      try {
-        const sig = await plSign(x, "TUC " + new Date().toISOString());
-        await (await plCreate("CAdESCOM.CadesSignedData")).VerifyCades(sig, 1, false);
-        out.push("подпись верна");
-      } catch (err) {
-        out.push("подпись: " + plError(err));
-        if (/0x800B010A|0x800B0109/i.test(plError(err))) plUntrusted();
-      }
-    }
-    try { out.push((await (await x.c.IsValid()).Result) ? "сертификат действителен" : "сертификат недействителен"); }
-    catch (err) { out.push("сертификат: " + plError(err)); }
-    status(st, "");
-    plInfo(out.join(" · "));
-  } finally { e.target.disabled = false; }
-};
-$("#pl-revoke").onclick = () => {
-  const x = plSelected();
-  if (!x) return;
-  $("#pl-confirm-cert").textContent = x.cn + " · SHA-1 " + x.sha1;
-  $("#pl-confirm").classList.remove("hidden");
-};
-$("#pl-cancel").onclick = () => $("#pl-confirm").classList.add("hidden");
-$("#pl-revoke-yes").onclick = async e => {
-  const x = plSelected(), st = $("#pl-status");
-  if (!x) return;
-  e.target.disabled = true; status(st, "Отзыв…");
-  try {
-    const r = await fetch("/" + ca.id + "/revoke", {method: "POST", body: await plSign(x, "revoke")});
-    const text = (await r.text()).trim();
-    if (!r.ok) throw new Error(text || "ошибка " + r.status);
-    $("#pl-confirm").classList.add("hidden");
-    status(st, "Отозван " + x.cn, "ok");
-  } catch (err) { status(st, "Не удалось отозвать: " + plError(err), "error"); }
-  finally { e.target.disabled = false; }
-};
 $("#copy-pem").onclick = e => copyText(pem(ca.der), e.target, "Скопировать PEM");
 $("#certview").href = certview(ca.der);
+cvLink($("#cert-cv"), ca.der);
 for (const c of $$(".copy")) copyCell(c, c.textContent.trim());
 openable($("#cert")); openable($("#plugin"), plOpen); openable($("#revoke")); openable($("#hier-row")); openable($("#verify"));
 // only the recipient of an issue link comes to issue: that row is open; otherwise all rows are closed
@@ -1016,8 +1061,8 @@ if (token) {
     const state = el("span", c.Revoked ? "Отозван" : expired ? "Срок истёк" : early ? "Ещё не действует" : "Действует", "b " + (c.Revoked ? "red" : expired || early ? "grey" : "green"));
     head.append(state, el("span", "до " + when(c.NotAfter), "meta"));
     const act = el("span", null, "actions"); head.append(act);
+    act.append(cvLink(el("a", "CertView"), c.DER));
     const dl = el("a", "Скачать", "button"); dl.href = self + "/cert/" + c.ID + ".crt"; act.append(dl);
-    const cv = el("a", "CertView", "button"); cv.href = certview(c.DER); cv.target = "_blank"; cv.rel = "noopener noreferrer"; act.append(cv);
 
     const t = el("table", null, "props"); body.append(t);
     for (const [k, v, copy] of [["Владелец", c.Subject], ["Выдан", when(c.Created)], ["Действует", when(c.NotBefore) + " — " + when(c.NotAfter)], ["Серийный номер", c.Serial, true], ["SHA-1", c.ID, true]].concat(c.Revoked ? [["Отозван", when(c.Revoked)]] : [])) {

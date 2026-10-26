@@ -47,8 +47,9 @@ With the CryptoPro CAdES Browser plug-in and either of its browser extensions
 (iifchhfnnmpdbibifmljnfjhpififfog or pfhgbfnnjiafkhfdkmpiflachepdcjod), the
 page issues a certificate into the user's CryptoPro store with a key of any
 algorithm a provider offers, user or TLS client, and lists the certificates of
-the store this CA issued: it checks a signature and the certificate status and
-revokes a certificate by its signature. The page loads the extension's own API;
+the store this CA issued with their revocation in TUC: it checks a signature and
+the certificate status on the computer, revokes a certificate by its signature
+and deletes a certificate with its key from the store. The page loads the extension's own API;
 no CryptoPro script is served by TUC.
 
 The Access section can replace either link independently. Replacement increments
@@ -96,10 +97,11 @@ ownership-validated.
 | `GET /<id>.crt`, `GET /<id>.crl` | CA certificate, CRL (published hourly and at once on a revocation, made when asked for with thisUpdate when it became due, valid for a week), as CA issuers and, when the CA issues with it, CRL distribution point of what the CA issues |
 | `POST /<id>/ocsp`, `GET /<id>/ocsp/<request>` | OCSP (RFC 6960) of what the CA issued, the OCSP URL of their AIA when the CA issues with it: good, revoked or, for anything else, unknown, with CertIDs of any hash OpenSSL has, GOST R 34.11-2012 included; signed by the OCSP responder of the CA, a certificate it issues at the first request for 90 days with OCSPSigning and id-pkix-ocsp-nocheck, thisUpdate now, valid for a week, nonce repeated; a signature on the request is ignored |
 | `GET /<id>/cert/<sha1>.crt` | a certificate the CA issued |
+| `GET /<id>/cert/<sha1>/status` | `{"revoked": <time> or null}` of a certificate the CA issued, not cached; 404 for any other |
 | `POST <enroll>[/tls-server][/tls-client][/justcert]/certfnsh.asp` | issues a leaf certificate, as `cryptcp -createcert -ca <enroll>[/tls-server][/tls-client][/justcert]` posts; the options in any order, each once |
 | `GET /.well-known/est/<label>/cacerts` | EST (RFC 7030): the CA and the CAs above it; the label is the CA id, optionally followed by `+tls-server` and `+tls-client` |
 | `POST /.well-known/est/<label>/simpleenroll`, `/simplereenroll` | EST: issues a leaf certificate of the template the label selects; a CA that issues by link takes its issue token as the HTTP Basic password |
-| `POST <enroll>/pfx` | `{"name", "algo", "tlsServer", "tlsClient", "fqdn", "password"}`: a key of any algorithm, by default the CA's, generated and not retained by TUC, with a leaf certificate from the template the TLS fields select, in a password-protected PKCS#12 with the chain; GOST uses Kuznyechik and Streebog, other algorithms use AES-256 and SHA-256; not cached |
+| `POST <enroll>/pfx` | `{"name", "algo", "tlsServer", "tlsClient", "fqdn", "password"}`: a key of any algorithm, by default the CA's, generated and not retained by TUC, with a leaf certificate from the template the TLS fields select, in a password-protected PKCS#12 with the chain; GOST uses Kuznyechik and Streebog, other algorithms use AES-256 and SHA-256; the certificate SHA-1 in `X-TUC-Certificate`; not cached |
 | `POST /<id>/tsp` | time-stamp (RFC 3161) under the policy anyPolicy, signed by a time-stamping certificate the CA issues at the first request, of its algorithm, with its CRL and OCSP URLs |
 | `POST /<id>/revoke` | revokes the certificate that signed the word `revoke` |
 

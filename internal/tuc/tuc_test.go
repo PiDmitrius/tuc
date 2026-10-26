@@ -1176,3 +1176,40 @@ func TestPageVerifyWithoutRevocationURLs(t *testing.T) {
 		t.Fatalf("page verification without revocation URLs: %v\n%s", err, out)
 	}
 }
+
+// A PFX names its certificate, whose status the CA tells from then on.
+func TestCertStatus(t *testing.T) {
+	e := newEnv(t)
+	root := e.create("/new", map[string]any{"subject": "CN=Root", "algo": "ecdsa256"})
+	body, _ := json.Marshal(map[string]any{"name": "status", "password": "pw"})
+	resp, err := http.Post(e.srv.URL+"/"+root.ID+"/pfx", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	id := resp.Header.Get("X-TUC-Certificate")
+	if resp.StatusCode != http.StatusOK || len(id) != 40 {
+		t.Fatalf("PFX: %d, certificate %q", resp.StatusCode, id)
+	}
+	status := func(cert string) (int, string) {
+		r, err := http.Get(e.srv.URL + "/" + root.ID + "/cert/" + cert + "/status")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		b, _ := io.ReadAll(r.Body)
+		return r.StatusCode, strings.TrimSpace(string(b))
+	}
+	if code, got := status(id); code != http.StatusOK || got != `{"revoked":null}` {
+		t.Fatalf("status before revocation: %d %s", code, got)
+	}
+	if code, b := e.post("/"+root.ID+"/revoke", map[string]any{"token": root.Admin, "cert": id}); code != http.StatusOK {
+		t.Fatalf("revoke: %d %s", code, b)
+	}
+	if code, got := status(strings.ToLower(id)); code != http.StatusOK || !strings.HasPrefix(got, `{"revoked":"`) {
+		t.Fatalf("status after revocation: %d %s", code, got)
+	}
+	if code, _ := status(strings.Repeat("0", 40)); code != http.StatusNotFound {
+		t.Fatalf("status of a certificate the CA did not issue: %d", code)
+	}
+}

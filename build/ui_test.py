@@ -448,14 +448,19 @@ with sync_playwright() as p:
         return tab
 
     creator = fresh(base + "/")
-    expect(creator.locator("#public-cas a").first).to_be_visible()
+    expect(creator.locator("#public-cas a.ca").first).to_be_visible()
     # the list shows what the service sets, never a name a user chose
     assert "Тестовый УЦ" not in creator.locator("#public-cas").inner_text()
-    for link in creator.locator("#public-cas a").all():
+    for link in creator.locator("#public-cas a.ca").all():
         assert re.fullmatch(r"/[0-9A-F]{40}", link.get_attribute("href"))
         expect(link.locator(".meta")).to_have_text(re.compile(r"\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2} UTC"))
-    first_url = creator.locator("#public-cas a").first.get_attribute("href")
-    creator.locator("#public-cas a").first.click()
+    # each CA opens in CertView from its row
+    with creator.expect_popup() as popup:
+        creator.locator("#public-cas a.cv").first.click()
+    popup.value.wait_for_url(re.compile(r"^https://certview\.deem\.ru/#cert="))
+    popup.value.close()
+    first_url = creator.locator("#public-cas a.ca").first.get_attribute("href")
+    creator.locator("#public-cas a.ca").first.click()
     creator.wait_for_url(base + first_url)
     creator.goto(base + "/")
     expect(creator.locator("#root")).to_be_hidden()
