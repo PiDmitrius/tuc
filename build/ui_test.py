@@ -69,6 +69,9 @@ with sync_playwright() as p:
     expect(page.locator(".item.open")).to_have_count(0)
     expect(page.locator("#issue-meta")).to_have_text("PFX")
     expect(page.locator("#hier-row > .head .meta")).to_have_text("уровень 1 · подчинённых УЦ: 0")
+    # every CertView button centres its logo with the text
+    cv = page.locator("a.cv").evaluate_all("as => as.filter(a => a.offsetParent).map(a => (a.id || a.className) + ' ' + getComputedStyle(a).display + ' ' + getComputedStyle(a).alignItems)")
+    assert cv and all(re.search(r" (inline-)?flex center$", c) for c in cv), cv
 
     # The enroll command follows the choices
     issue_card = page.locator("#issue")
