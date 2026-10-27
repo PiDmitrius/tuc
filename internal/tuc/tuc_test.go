@@ -1176,3 +1176,41 @@ func TestPageVerifyWithoutRevocationURLs(t *testing.T) {
 		t.Fatalf("page verification without revocation URLs: %v\n%s", err, out)
 	}
 }
+
+// A PFX names its certificate, whose status the CA tells from then on.
+func TestCertStatus(t *testing.T) {
+	e := newEnv(t)
+	root := e.create("/new", map[string]any{"subject": "CN=Root", "algo": "ecdsa256"})
+	body, _ := json.Marshal(map[string]any{"name": "status", "password": "pw"})
+	resp, err := http.Post(e.srv.URL+"/"+root.ID+"/pfx", "application/json", bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	id := resp.Header.Get("X-TUC-Certificate")
+	if resp.StatusCode != http.StatusOK || len(id) != 40 {
+		t.Fatalf("PFX: %d, certificate %q", resp.StatusCode, id)
+	}
+	status := func(cert string) (int, certRow) {
+		r, err := http.Get(e.srv.URL + "/" + root.ID + "/cert/" + cert + "/status")
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer r.Body.Close()
+		var c certRow
+		json.NewDecoder(r.Body).Decode(&c)
+		return r.StatusCode, c
+	}
+	if code, got := status(id); code != http.StatusOK || got.ID != id || got.Revoked != nil || got.Alg != "ECDSA P-256" || got.Algorithm != "ECDSA P-256" || got.CN != "status" || got.Issuer == "" || got.NotBefore.IsZero() {
+		t.Fatalf("status before revocation: %d %+v", code, got)
+	}
+	if code, b := e.post("/"+root.ID+"/revoke", map[string]any{"token": root.Admin, "cert": id}); code != http.StatusOK {
+		t.Fatalf("revoke: %d %s", code, b)
+	}
+	if code, got := status(strings.ToLower(id)); code != http.StatusOK || got.Revoked == nil {
+		t.Fatalf("status after revocation: %d %+v", code, got)
+	}
+	if code, _ := status(strings.Repeat("0", 40)); code != http.StatusNotFound {
+		t.Fatalf("status of a certificate the CA did not issue: %d", code)
+	}
+}

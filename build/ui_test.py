@@ -68,7 +68,7 @@ with sync_playwright() as p:
     # The owner sees every row closed, a summary on each
     expect(page.locator(".item.open")).to_have_count(0)
     expect(page.locator("#issue-meta")).to_have_text("PFX")
-    expect(page.locator("#hier-row .meta")).to_have_text("уровень 1 · подчинённых УЦ: 0")
+    expect(page.locator("#hier-row > .head .meta")).to_have_text("уровень 1 · подчинённых УЦ: 0")
 
     # The enroll command follows the choices
     issue_card = page.locator("#issue")
@@ -284,7 +284,7 @@ with sync_playwright() as p:
     inter_url = page.url
     expect(page.locator(".position .kind")).to_have_text("Подчинённый УЦ · уровень 2")
     expect(page.get_by_role("link", name="Родительский УЦ", exact=True)).to_be_visible()
-    expect(page.locator("#hier-row .meta")).to_have_text("уровень 2 · подчинённых УЦ: 0")
+    expect(page.locator("#hier-row > .head .meta")).to_have_text("уровень 2 · подчинённых УЦ: 0")
     expect(page.locator("#hier li")).to_have_count(2)
     expect(page.locator("#hier li[aria-current=page]")).to_contain_text("Тестовый УЦ (уровень 2)")
     # Tokens are local to each CA; hierarchy navigation is public.
@@ -448,14 +448,19 @@ with sync_playwright() as p:
         return tab
 
     creator = fresh(base + "/")
-    expect(creator.locator("#public-cas a").first).to_be_visible()
+    expect(creator.locator("#public-cas a.ca").first).to_be_visible()
     # the list shows what the service sets, never a name a user chose
     assert "Тестовый УЦ" not in creator.locator("#public-cas").inner_text()
-    for link in creator.locator("#public-cas a").all():
+    for link in creator.locator("#public-cas a.ca").all():
         assert re.fullmatch(r"/[0-9A-F]{40}", link.get_attribute("href"))
         expect(link.locator(".meta")).to_have_text(re.compile(r"\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2} UTC"))
-    first_url = creator.locator("#public-cas a").first.get_attribute("href")
-    creator.locator("#public-cas a").first.click()
+    # each CA opens in CertView from its row
+    with creator.expect_popup() as popup:
+        creator.locator("#public-cas a.cv").first.click()
+    popup.value.wait_for_url(re.compile(r"^https://certview\.deem\.ru/#cert="))
+    popup.value.close()
+    first_url = creator.locator("#public-cas a.ca").first.get_attribute("href")
+    creator.locator("#public-cas a.ca").first.click()
     creator.wait_for_url(base + first_url)
     creator.goto(base + "/")
     expect(creator.locator("#root")).to_be_hidden()
@@ -548,7 +553,11 @@ with sync_playwright() as p:
     probe.locator('input[name=imp][value=openssl]').locator('..').click()
     expect(probe.locator("#import-note")).to_contain_text("Нужен OpenSSL с gost-engine")
     expect(probe.locator("#management-rows")).to_be_hidden()
-    assert probe.locator("#public-rows > .item").evaluate_all("rows => rows.map(r => r.id)") == ["issue", "verify", "revoke", "cert", "hier-row"]
+    assert probe.locator("#public-rows > .item").evaluate_all("rows => rows.map(r => r.id)") == ["issue", "plugin", "verify", "revoke", "cert", "hier-row"]
+    # Without the CryptoPro extension the plug-in block says so and stays usable
+    probe.locator("#plugin > .head").click()
+    expect(probe.locator("#pl-state")).to_have_text("Расширение КриптоПро не найдено")
+    expect(probe.locator("#pl-ready")).to_be_hidden()
     probe.goto(base + "/" + child["id"] + "#token=" + child["admin"])
     expect(probe.locator("#management-rows")).to_be_visible()
     assert probe.locator("#management-rows > .item").evaluate_all("rows => rows.map(r => r.id)") == ["issued", "child-row", "access", "settings"]

@@ -31,6 +31,7 @@ import (
 //	                                         OCSP (RFC 6960) of what the CA issued, the request in
 //	                                         the body or URL-encoded base64 in the path
 //	GET  /{id}/cert/{sha1}.crt               a certificate the CA issued; also .cer or bare
+//	GET  /{id}/cert/{sha1}/status            a certificate the CA issued as /list has it
 //	POST /{id}[/{issue}][/{option}...]/certfnsh.asp
 //	                                         issue a leaf certificate to cryptcp -ca /{id}[/{issue}][/{option}...],
 //	                                         options tls-server, tls-client and justcert in any order
@@ -65,6 +66,7 @@ func (s *Service) Handler() http.Handler {
 	m.HandleFunc("POST /new", s.create)
 	m.HandleFunc("GET /{id}", s.caGet)
 	m.HandleFunc("GET /{id}/cert/{cert}", s.issuedCert)
+	m.HandleFunc("GET /{id}/cert/{cert}/status", s.certStatus)
 	m.HandleFunc("POST /{id}/ocsp", s.ocsp)
 	m.HandleFunc("GET /{id}/ocsp/{req...}", s.ocsp)
 	m.HandleFunc("POST /{id}/{path...}", s.enroll)
@@ -443,6 +445,22 @@ func (s *Service) issuedCert(w http.ResponseWriter, r *http.Request) {
 	file(w, r, "application/pkix-cert", "cert-"+id+".crt", time.Time{}, der)
 }
 
+// certStatus is a certificate the CA issued as its list has it, with the revocation.
+func (s *Service) certStatus(w http.ResponseWriter, r *http.Request) {
+	n := s.serving(w, r)
+	if n == nil {
+		return
+	}
+	n.Close()
+	c, err := s.st.cert(n.id, strings.ToUpper(r.PathValue("cert")))
+	if err != nil {
+		fail(w, http.StatusNotFound, errors.New("no such certificate"))
+		return
+	}
+	w.Header().Set("Cache-Control", "no-store")
+	reply(w, c)
+}
+
 func (s *Service) crl(w http.ResponseWriter, r *http.Request) {
 	n := s.serving(w, r)
 	if n == nil {
@@ -524,11 +542,12 @@ func (s *Service) pfx(w http.ResponseWriter, r *http.Request) {
 		fail(w, http.StatusForbidden, errors.New("this CA issues only with its issue token"))
 		return
 	}
-	p12, err := s.IssuePFX(n, req.Algo, strings.TrimSpace(req.Name), purpose{req.Server, req.Client}, strings.TrimSpace(req.FQDN), req.Password)
+	p12, id, err := s.IssuePFX(n, req.Algo, strings.TrimSpace(req.Name), purpose{req.Server, req.Client}, strings.TrimSpace(req.FQDN), req.Password)
 	if err != nil {
 		fail(w, http.StatusBadRequest, err)
 		return
 	}
+	w.Header().Set("X-TUC-Certificate", id)
 	w.Header().Set("Cache-Control", "no-store")
 	file(w, r, "application/x-pkcs12", fileName.ReplaceAllString(strings.TrimSpace(req.Name), "_")+".pfx", time.Time{}, p12)
 }
