@@ -352,7 +352,7 @@ for (const a of $$("a.cv")) cvLink(a);
 </div>
 <p class="hidden" id="closed-note">Для выпуска получите ссылку у владельца УЦ. Отозвать свой сертификат можно ниже без ссылки.</p>
 </div></div>
-<div class="item" id="plugin"><div class="head"><span class="name">КриптоПро в браузере</span><span class="meta" id="pl-meta"></span></div>
+<div class="item" id="plugin"><div class="head"><span class="name">Браузер плагин</span><span class="meta" id="pl-meta"></span></div>
 <div class="body">
 <p class="note hidden" id="pl-http">HTTP: код страницы может быть подменён.</p>
 <p class="status hidden" id="pl-state" role="status"></p>
