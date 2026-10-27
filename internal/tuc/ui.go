@@ -138,7 +138,9 @@ table.props td:first-child{color:var(--text2);width:150px;white-space:nowrap}
 .search input{flex:1 1 240px;min-width:0} .search button{flex-shrink:0}
 .empty{padding:10px 16px;color:var(--text2)} .empty.status:empty{display:none}
 .hidden{display:none!important}
-@media (max-width:700px){main,header{padding-left:12px;padding-right:12px} .hier .cn{flex-basis:calc(100% - 2ch - 8px)} .head .meta{margin-left:0;flex-basis:100%}
+/* a finger needs room: controls at least 44px high */
+@media (pointer:coarse){button,a.button,select,input[type=text],input[type=password],input[type=number],.seg label{min-height:44px} a.button,.seg label{display:inline-flex;align-items:center}}
+@media (max-width:700px){main,header{padding-left:12px;padding-right:12px} table.props,table.props tbody,table.props tr,table.props td{display:block;width:auto} table.props td:first-child{white-space:normal;padding-bottom:0} .hier .cn{flex-basis:calc(100% - 2ch - 8px)} .head .meta{margin-left:0;flex-basis:100%}
   .seg{flex-direction:column} .seg label{border-left:none;border-top:1px solid var(--border);white-space:normal} .seg label:first-child{border-top:none}}
 </style></head><body>
 <header><a class="logo" href="/">{{logo}}</a><div><h1><a href="/">ТУЦ</a></h1><p>Тестовые удостоверяющие центры</p></div></header>

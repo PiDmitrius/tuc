@@ -458,13 +458,17 @@ with sync_playwright() as p:
         assert re.fullmatch(r"/[0-9A-F]{40}", link.get_attribute("href"))
         expect(link.locator(".meta")).to_have_text(re.compile(r"\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2} UTC"))
     # On a phone rows wrap: no name breaks into letters, nothing overflows
-    phone = browser.new_page(viewport={"width": 390, "height": 844})
+    phone = browser.new_page(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
     one_line = "ns => ns.every(n => { const r = document.createRange(); r.selectNodeContents(n); return r.getClientRects().length === 1; })"
     phone.goto(base + "/")
     assert phone.locator("#public-cas .name").evaluate_all(one_line)
     assert phone.evaluate("document.documentElement.scrollWidth <= innerWidth")
     phone.goto(base + creator.locator("#public-cas > a").first.get_attribute("href"))
     phone.locator("#hier-row > .head").click()
+    # controls fit a finger; certificate properties stack under their labels
+    assert phone.locator("button:visible, a.button:visible").evaluate_all("bs => bs.every(b => b.getBoundingClientRect().height >= 44)")
+    phone.locator("#cert > .head").click()
+    assert phone.locator("#cert table.props tr").first.evaluate("r => r.cells[1].getBoundingClientRect().top > r.cells[0].getBoundingClientRect().top")
     assert phone.locator("#hier li").evaluate_all("ls => ls.every(l => Math.abs(l.querySelector('.lvl').getBoundingClientRect().top - l.querySelector('.cn').getBoundingClientRect().top) < 4)")
     assert phone.evaluate("document.documentElement.scrollWidth <= innerWidth")
     phone.close()
