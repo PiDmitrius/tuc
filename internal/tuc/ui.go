@@ -359,7 +359,8 @@ for (const a of $$("a.cv")) cvLink(a);
 <div class="hidden" id="pl-ready">
 <div id="pl-form"><div class="row"><label class="field"><span>Имя сертификата (CN)</span><input type="text" id="pl-name" autocomplete="off"></label><label class="field"><span>Алгоритм ключа</span><select id="pl-algo">{{range .Algos}}<option value="{{.}}">{{.Long}}</option>{{end}}</select></label><label class="field"><span>PIN-код контейнера</span><input type="password" id="pl-pin" placeholder="без PIN-кода" autocomplete="new-password"></label></div>
 <div class="controls" style="margin-top:8px"><span class="seg" role="group" aria-label="Назначение"><label><input type="checkbox" id="pl-client"> TLS-клиент</label></span></div>
-<div class="row"><button class="primary" id="pl-issue">Выпустить и установить</button><span class="status" id="pl-issue-status" role="status"></span></div></div>
+<div class="row"><button class="primary" id="pl-issue">Выпустить и установить</button><span class="status" id="pl-issue-status" role="status"></span></div>
+<p class="note hidden" id="pl-orphan"></p></div>
 <p class="hidden" id="pl-closed">Для выпуска нужна ссылка выпуска.</p>
 <div class="hidden" id="pl-root"><p style="margin-top:12px">Цепочка до корня УЦ не доверенная: подпись и проверка не пройдут. Установите корень в доверенные:</p>
 <div class="controls" style="margin-top:6px"><span class="seg" role="radiogroup" aria-label="Операционная система">{{range .Commands}}{{if eq .Tool "cryptopro"}}<label><input type="radio" name="os5" value="{{.ID}}"> {{.Title}}</label>{{end}}{{end}}</span></div>
@@ -852,6 +853,8 @@ $("#pl-issue").onclick = async e => {
   const btn = e.target, st = $("#pl-issue-status"), cn = $("#pl-name").value.trim(), algo = $("#pl-algo").value, [type, len, hash] = plAlgos[algo];
   if (!cn) { $("#pl-name").focus(); return status(st, "Укажите имя", "error"); }
   btn.disabled = true;
+  let left = "";
+  $("#pl-orphan").classList.add("hidden");
   try {
     status(st, "Создание ключа…");
     const key = await plCreate("X509Enrollment.CX509PrivateKey");
@@ -860,7 +863,9 @@ $("#pl-issue").onclick = async e => {
     if (len) await key.propset_Length(len);
     // a container of its own: the plug-in cannot delete a key whose issue failed,
     // and a name an earlier attempt took does not stop the next
-    await key.propset_ContainerName("\\\\.\\HDIMAGE\\" + fileName(cn) + "-" + [...crypto.getRandomValues(new Uint8Array(3))].map(b => b.toString(16).padStart(2, "0")).join(""));
+    const container = "\\\\.\\HDIMAGE\\" + fileName(cn) + "-" + [...crypto.getRandomValues(new Uint8Array(3))].map(b => b.toString(16).padStart(2, "0")).join("");
+    await key.propset_ContainerName(container);
+    left = container;
     await key.propset_Pin($("#pl-pin").value);
     const req = await plCreate("X509Enrollment.CX509CertificateRequestPkcs10");
     await req.InitializeFromPrivateKey(1, key, "");
@@ -886,6 +891,7 @@ $("#pl-issue").onclick = async e => {
       untrusted = true;
       await inst.InstallResponse(4, p7, 7, "");
     }
+    left = "";
     if (untrusted) plUntrusted();
     const store = await plCreate("CAdESCOM.Store");
     await store.Open(2, "My", 2);
@@ -899,7 +905,16 @@ $("#pl-issue").onclick = async e => {
     await plList(sha1);
     status(st, "Установлен " + cn, "ok");
     $("#pl-name").value = "TUC-" + stamp();
-  } catch (err) { status(st, "Не удалось выпустить: " + plError(err), "error"); }
+  } catch (err) {
+    status(st, "Не удалось выпустить: " + plError(err), "error");
+    // the plug-in cannot delete a key whose certificate did not install
+    if (left) {
+      const csptest = {windows: '& "C:\\Program Files\\Crypto Pro\\CSP\\csptest.exe"', macos: "/opt/cprocsp/bin/csptest"}[value("os")] || "/opt/cprocsp/bin/amd64/csptest";
+      $("#pl-orphan").replaceChildren("На компьютере мог остаться контейнер ключа без сертификата " + left +
+        ". Чтобы удалить его, закройте страницы с плагином, иначе следующий ключ не создастся (Bad Data), и выполните ", el("code", csptest + " -keyset -deletekeyset -container '" + left + "'"));
+      $("#pl-orphan").classList.remove("hidden");
+    }
+  }
   finally { btn.disabled = false; }
 };
 $("#copy-pem").onclick = e => copyText(pem(ca.der), e.target, "Скопировать PEM");
