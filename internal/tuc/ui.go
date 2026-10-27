@@ -636,10 +636,10 @@ $("#get-pfx").onclick = async e => {
     const encoded = btoa(bin);
     if (pfxURL) URL.revokeObjectURL(pfxURL);
     pfxURL = URL.createObjectURL(blob);
-    // the certificate of the PFX as the issued list shows it
-    const sha1 = r.headers.get("X-TUC-Certificate"), got = sha1 && await fetch("/" + ca.id + "/cert/" + sha1 + "/status");
+    // the certificate of the PFX as the issued list shows it, once the PFX is shown
+    const sha1 = r.headers.get("X-TUC-Certificate");
     $("#pfx-cert").replaceChildren();
-    if (got && got.ok) certItem(await got.json(), $("#pfx-cert"), false);
+    if (sha1) fetch("/" + ca.id + "/cert/" + sha1 + "/status").then(got => got.ok && got.json()).then(c => c && certItem(c, $("#pfx-cert"), false), () => {});
     $("#pfx-file").href = pfxURL; $("#pfx-file").download = fileName(name) + ".pfx";
     $("#pfx-b64").value = encoded; $("#pfx-pass-out").value = pass;
     $("#imp-b64").value = encoded; $("#imp-pass").value = pass; pfxName = fileName(name);
@@ -730,14 +730,14 @@ function plOpen() {
     await plList();
   }, e => { plConnect = null; status($("#pl-state"), plError(e), "error"); });
 }
-// issuing needs the issue link at a CA that issues by link
+// the plug-in issues when the issue form does
 function plRefreshIssue() {
-  const can = !closed || enroll !== ca.url;
-  $("#pl-form").classList.toggle("hidden", !can);
-  $("#pl-closed").classList.toggle("hidden", can);
+  $("#pl-form").classList.toggle("hidden", !issuing);
+  $("#pl-closed").classList.toggle("hidden", issuing);
 }
 // The certificates of this CA in the store, as the issued list shows them,
-// with whether the store has the key
+// with whether the store has the key. Only those whose issuer has every value
+// of the CA's name go to TUC: the thumbprints of the others are not its business
 async function plList(select) {
   const st = $("#pl-status"), btn = $("#pl-refresh");
   btn.disabled = true; status(st, "Обновляем…");
@@ -746,7 +746,10 @@ async function plList(select) {
     await store.Open(2, "My", 2);
     const all = await store.Certificates, found = [];
     for (let i = 1, n = await all.Count; i <= n; i++) {
-      const c = await all.Item(i), r = await fetch("/" + ca.id + "/cert/" + await c.Thumbprint + "/status");
+      const c = await all.Item(i);
+      const issuer = (await c.IssuerName).replace(/""/g, '"');
+      if (!ca.names.every(v => issuer.includes(v))) continue;
+      const r = await fetch("/" + ca.id + "/cert/" + await c.Thumbprint + "/status");
       if (r.ok) found.push({c, row: await r.json(), key: await c.HasPrivateKey()});
     }
     await store.Close();
@@ -855,7 +858,9 @@ $("#pl-issue").onclick = async e => {
     await key.propset_ProviderType(type);
     await key.propset_KeySpec(1);
     if (len) await key.propset_Length(len);
-    await key.propset_ContainerName("\\\\.\\HDIMAGE\\" + fileName(cn));
+    // a container of its own: the plug-in cannot delete a key whose issue failed,
+    // and a name an earlier attempt took does not stop the next
+    await key.propset_ContainerName("\\\\.\\HDIMAGE\\" + fileName(cn) + "-" + [...crypto.getRandomValues(new Uint8Array(3))].map(b => b.toString(16).padStart(2, "0")).join(""));
     await key.propset_Pin($("#pl-pin").value);
     const req = await plCreate("X509Enrollment.CX509CertificateRequestPkcs10");
     await req.InitializeFromPrivateKey(1, key, "");
@@ -910,6 +915,7 @@ function showIssue(open) {
   issuing = open;
   $("#issue-form").classList.toggle("hidden", !open);
   $("#closed-note").classList.toggle("hidden", open);
+  plRefreshIssue();
   refresh();
 }
 showIssue(!closed);
@@ -1177,7 +1183,7 @@ func (s *Service) caPage(w http.ResponseWriter, r *http.Request) {
 		"Commands": commands(urls{s.publicationURL(n.id), s.caURL(n.id), s.estURL(n.id)}, s.publicationURL(chain[0].ID), n.alg),
 		"Child": map[string]any{"Subject": testName(len(chain) + 1), "Closed": n.closed, "Child": true,
 			"Algos": algos, "Alg": n.alg},
-		"JSON": map[string]any{"id": n.id, "url": s.caURL(n.id), "pub": s.publicationURL(n.id), "root": s.publicationURL(chain[0].ID), "est": s.estURL(n.id), "alg": n.alg, "issuance": n.iss, "gostChain": gostChain, "parent": parent, "closed": n.closed, "disabled": n.disabled,
+		"JSON": map[string]any{"id": n.id, "names": nameValues(n.cert.RawSubject), "url": s.caURL(n.id), "pub": s.publicationURL(n.id), "root": s.publicationURL(chain[0].ID), "est": s.estURL(n.id), "alg": n.alg, "issuance": n.iss, "gostChain": gostChain, "parent": parent, "closed": n.closed, "disabled": n.disabled,
 			"der": base64.StdEncoding.EncodeToString(n.der)},
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")

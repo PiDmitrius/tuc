@@ -740,6 +740,15 @@ func nameString(der []byte) string {
 	return strings.Join(out, ", ")
 }
 
+// nameValues are the attribute values of the name der.
+func nameValues(der []byte) []string {
+	var out []string
+	for _, p := range nameParts(der) {
+		out = append(out, p[1])
+	}
+	return out
+}
+
 func supportedRequestKey(spki []byte) bool {
 	if key, err := x509.ParsePKIXPublicKey(spki); err == nil {
 		switch k := key.(type) {
