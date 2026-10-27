@@ -134,12 +134,11 @@ table.props{border-collapse:collapse;width:100%;margin-top:6px;table-layout:fixe
 table.props td:first-child{color:var(--text2);width:150px;white-space:nowrap}
 .dn-key{color:var(--text2)} .dn-val{font-weight:600}
 .cert .head .name{font-weight:400;color:var(--text)}
-.cert .actions{display:flex;flex-wrap:wrap;gap:4px;margin-left:8px}
 .search{display:flex;flex-wrap:wrap;gap:8px;padding:10px 16px;border-bottom:1px solid var(--border)}
 .search input{flex:1 1 240px;min-width:0} .search button{flex-shrink:0}
 .empty{padding:10px 16px;color:var(--text2)} .empty.status:empty{display:none}
 .hidden{display:none!important}
-@media (max-width:700px){main,header{padding-left:12px;padding-right:12px} .head .meta{margin-left:0;flex-basis:100%} .cert .actions{margin-left:0}
+@media (max-width:700px){main,header{padding-left:12px;padding-right:12px} .head .meta{margin-left:0;flex-basis:100%}
   .seg{flex-direction:column} .seg label{border-left:none;border-top:1px solid var(--border);white-space:normal} .seg label:first-child{border-top:none}}
 </style></head><body>
 <header><a class="logo" href="/">{{logo}}</a><div><h1><a href="/">ТУЦ</a></h1><p>Тестовые удостоверяющие центры</p></div></header>
@@ -236,7 +235,8 @@ function cvLink(a, b64) {
 }
 const el = (tag, text, cls) => { const e = document.createElement(tag); if (text) e.textContent = text; if (cls) e.className = cls; return e; };
 // A certificate the CA issued as every list shows it, c a row of /list or of
-// /<id>/cert/<sha1>/status, badges added after its state
+// /<id>/cert/<sha1>/status, badges added after its state; its actions, CertView
+// first, are in the row under its properties
 function certItem(c, box, open, ...badges) {
   const item = el("div", null, "item cert"), head = el("div", null, "head"), body = el("div", null, "body");
   item.dataset.id = c.ID; item.append(head, body); box.append(item);
@@ -247,16 +247,16 @@ function certItem(c, box, open, ...badges) {
   if (c.Alg) head.append(el("span", c.Alg, "b blue"));
   const expired = new Date(c.NotAfter) < new Date(), early = new Date(c.NotBefore) > new Date();
   const state = el("span", c.Revoked ? "Отозван" : expired ? "Срок истёк" : early ? "Ещё не действует" : "Действует", "b " + (c.Revoked ? "red" : expired || early ? "grey" : "green"));
-  const act = el("span", null, "actions"), dl = el("a", "Скачать", "button");
-  dl.href = "/" + ca.id + "/cert/" + c.ID + ".crt";
-  act.append(cvLink(el("a", "CertView"), c.DER), dl);
-  head.append(state, ...badges, el("span", c.ID.slice(0, 8), "id"), el("span", "до " + when(c.NotAfter), "meta"), act);
+  head.append(state, ...badges, el("span", c.ID.slice(0, 8), "id"), el("span", "до " + when(c.NotAfter), "meta"));
   const t = el("table", null, "props"); body.append(t);
   const prop = (k, v, copy) => { const tr = t.insertRow(); tr.insertCell().textContent = k; const td = tr.insertCell(); td.textContent = v; if (copy) { td.className = "copy"; td.tabIndex = 0; copyCell(td, v); } return td; };
   for (const [k, v, copy] of [["Владелец", c.Subject], ["Издатель", c.Issuer], ["Выдан", when(c.Created)], ["Серийный номер", c.Serial, true], ["SHA-1", c.ID, true],
     ["Действует", when(c.NotBefore) + " — " + when(c.NotAfter)], ["Алгоритм ключа", c.Algorithm]].concat(c.Revoked ? [["Отозван", when(c.Revoked)]] : [])) prop(k, v, copy);
+  const row = el("div", null, "row"), dl = el("a", "Скачать", "button");
+  dl.href = "/" + ca.id + "/cert/" + c.ID + ".crt";
+  row.append(cvLink(el("a", "CertView"), c.DER), dl); body.append(row);
   openable(item)(open);
-  return {item, body, state, prop};
+  return {item, body, row, state, prop};
 }
 const derB64 = buf => { let s = ""; for (const b of new Uint8Array(buf)) s += String.fromCharCode(b); return btoa(s); };
 document.addEventListener("click", async e => {
@@ -764,12 +764,12 @@ async function plList(select) {
   finally { btn.disabled = false; }
 }
 function plRow(x, open) {
-  const {body, prop} = certItem(x.row, $("#pl-certs"), open, el("span", x.key ? "Ключ есть" : "Ключа нет", "b grey"));
+  const {body, row: r, prop} = certItem(x.row, $("#pl-certs"), open, el("span", x.key ? "Ключ есть" : "Ключа нет", "b grey"));
   x.sha1 = x.row.ID; x.revoked = x.row.Revoked;
   let checked;
-  const r = el("div", null, "row"), st = el("span", null, "status");
+  const st = el("span", null, "status");
   const check = el("button", "Протестировать"), rv = el("button", "Отозвать", "danger"), del = el("button", "Удалить", "danger");
-  r.append(check); if (!x.revoked && x.key) r.append(rv); r.append(del, st); body.append(r);
+  r.append(check); if (!x.revoked && x.key) r.append(rv); r.append(del, st);
   check.onclick = async () => {
     check.disabled = true; status(st, "Подписываем и проверяем…");
     const out = [];
@@ -1078,9 +1078,9 @@ if (token) {
   }
   window.list = list;
   function row(c, open) {
-    const {body, state} = certItem(c, box, open);
+    const {body, row: r, state} = certItem(c, box, open);
     if (!c.Revoked) {
-      const r = el("div", null, "row"), rv = el("button", "Отозвать", "danger"); r.append(rv); body.append(r);
+      const rv = el("button", "Отозвать", "danger"); r.append(rv);
       rv.onclick = () => {
         r.classList.add("hidden");
         const conf = el("div", null, "row"), st = el("span", null, "status"), go = el("button", "Отозвать сертификат", "danger"), no = el("button", "Отмена");
@@ -1090,7 +1090,7 @@ if (token) {
           go.disabled = true; status(st, "Отзываем…");
           try { await call(self + "/revoke", {token, cert: c.ID}); }
           catch (x) { status(st, "Не удалось отозвать: " + x.message, "error"); go.disabled = false; return; }
-          state.textContent = "Отозван"; state.className = "b red"; conf.remove(); r.remove();
+          state.textContent = "Отозван"; state.className = "b red"; conf.remove(); rv.remove(); r.classList.remove("hidden");
           const h = $$("#hier a.child").find(a => new URL(a.href).pathname === "/" + c.ID);
           if (h) Object.assign(h.closest("li").querySelector("[data-state]"), {textContent: "Отозван", className: "b red"});
         };
