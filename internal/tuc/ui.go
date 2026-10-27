@@ -87,7 +87,7 @@ a{color:var(--accent)}
 button,a.button{font:inherit;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);padding:4px 12px;cursor:pointer;text-decoration:none;display:inline-block}
 button:hover,a.button:hover{border-color:var(--accent);background:var(--tint)}
 /* the link to CertView carries its logo, the certview shield */
-a.button.cv{display:inline-flex;align-items:center;gap:6px} .cv svg{width:14px;height:14px;flex:none}
+a.button.cv{display:inline-flex;align-items:center;gap:4px} .cv svg{width:12px;height:14px;flex:none}
 button.primary{background:var(--brand);border-color:var(--brand);color:#fff} button.primary:hover{background:var(--brand2);border-color:var(--brand2)}
 button.danger{border-color:var(--red);color:var(--red)} button.danger:hover{background:#ffebe9}
 button:disabled{opacity:.5;cursor:default}
@@ -226,7 +226,7 @@ const pem = b64 => "-----BEGIN CERTIFICATE-----\n" + b64.match(/.{1,64}/g).join(
 const when = s => s ? s.replace("T", " ").replace(/Z$/, " UTC").replace(/^(\d+)-(\d+)-(\d+)/, "$1.$2.$3") : "";
 // A certificate shown on a page opens in CertView first: a link with its
 // logo, to the DER of b64 or, for data-crt, of the certificate at that URL
-const cvLogo = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1 L14 3 V8 Q14 12 8 15 Q2 12 2 8 V3 Z" fill="#012B6E"/><path d="M5 8 L7 10 L11 6" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const cvLogo = '<svg viewBox="2 1 12 14" aria-hidden="true"><path d="M8 1 L14 3 V8 Q14 12 8 15 Q2 12 2 8 V3 Z" fill="#012B6E"/><path d="M5 8 L7 10 L11 6" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 function cvLink(a, b64) {
   if (!a.querySelector("svg")) a.insertAdjacentHTML("afterbegin", cvLogo);
   a.classList.add("button", "cv"); a.target = "_blank"; a.rel = "noopener noreferrer";
@@ -308,7 +308,7 @@ for (const a of $$("a.cv")) cvLink(a);
 <span class="b grey{{if not .Disabled}} hidden{{end}}" id="disabled-pill">Отключён</span>
 <span class="b solid hidden" id="pill-admin">Управление</span><span class="b blue hidden" id="pill-issue">Доступ по ссылке</span></div>
 <p class="facts">{{if .Revoked}}отозван {{time .Revoked}} · {{end}}до {{time .NotAfter}} · SHA-1 <span class="copy" tabindex="0">{{.ID}}</span></p>
-<div class="row"><a class="button cv" id="certview" target="_blank" rel="noopener noreferrer"><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 1 L14 3 V8 Q14 12 8 15 Q2 12 2 8 V3 Z" fill="#012B6E"/><path d="M5 8 L7 10 L11 6" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>CertView</a></div>
+<div class="row"><a class="button cv" id="certview" target="_blank" rel="noopener noreferrer"><svg viewBox="2 1 12 14" aria-hidden="true"><path d="M8 1 L14 3 V8 Q14 12 8 15 Q2 12 2 8 V3 Z" fill="#012B6E"/><path d="M5 8 L7 10 L11 6" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>CertView</a></div>
 </div>
 
 
