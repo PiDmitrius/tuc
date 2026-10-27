@@ -451,19 +451,29 @@ with sync_playwright() as p:
         return tab
 
     creator = fresh(base + "/")
-    expect(creator.locator("#public-cas a.ca").first).to_be_visible()
+    expect(creator.locator("#public-cas > a").first).to_be_visible()
     # the list shows what the service sets, never a name a user chose
     assert "Тестовый УЦ" not in creator.locator("#public-cas").inner_text()
-    for link in creator.locator("#public-cas a.ca").all():
+    for link in creator.locator("#public-cas > a").all():
         assert re.fullmatch(r"/[0-9A-F]{40}", link.get_attribute("href"))
         expect(link.locator(".meta")).to_have_text(re.compile(r"\d{4}\.\d{2}\.\d{2} \d{2}:\d{2}:\d{2} UTC"))
-    # each CA opens in CertView from its row
-    with creator.expect_popup() as popup:
-        creator.locator("#public-cas a.cv").first.click()
-    popup.value.wait_for_url(re.compile(r"^https://certview\.deem\.ru/#cert="))
-    popup.value.close()
-    first_url = creator.locator("#public-cas a.ca").first.get_attribute("href")
-    creator.locator("#public-cas a.ca").first.click()
+    # On a phone rows wrap: no name breaks into letters, nothing overflows
+    phone = browser.new_page(viewport={"width": 390, "height": 844}, has_touch=True, is_mobile=True)
+    one_line = "ns => ns.every(n => { const r = document.createRange(); r.selectNodeContents(n); return r.getClientRects().length === 1; })"
+    phone.goto(base + "/")
+    assert phone.locator("#public-cas .name").evaluate_all(one_line)
+    assert phone.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    phone.goto(base + creator.locator("#public-cas > a").first.get_attribute("href"))
+    phone.locator("#hier-row > .head").click()
+    # controls fit a finger; certificate properties stack under their labels
+    assert phone.locator("button:visible, a.button:visible").evaluate_all("bs => bs.every(b => b.getBoundingClientRect().height >= 44)")
+    phone.locator("#cert > .head").click()
+    assert phone.locator("#cert table.props tr").first.evaluate("r => r.cells[1].getBoundingClientRect().top > r.cells[0].getBoundingClientRect().top")
+    assert phone.locator("#hier li").evaluate_all("ls => ls.every(l => Math.abs(l.querySelector('.lvl').getBoundingClientRect().top - l.querySelector('.cn').getBoundingClientRect().top) < 4)")
+    assert phone.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    phone.close()
+    first_url = creator.locator("#public-cas > a").first.get_attribute("href")
+    creator.locator("#public-cas > a").first.click()
     creator.wait_for_url(base + first_url)
     creator.goto(base + "/")
     expect(creator.locator("#root")).to_be_hidden()

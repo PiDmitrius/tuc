@@ -72,7 +72,7 @@ a{color:var(--accent)}
 .position .kind{overflow:hidden;text-overflow:ellipsis;min-width:0} .position>a{flex:none}
 .hier{max-height:18rem;overflow:auto} .body .rows{margin:0}
 .hier h3{font-size:12px;font-weight:400;color:var(--text2);margin:6px 0 2px}
-.hier ol{list-style:none} .hier li{display:flex;gap:8px;align-items:baseline;padding:3px 0} .hier .cv{padding:1px 8px;font-size:12px}
+.hier ol{list-style:none} .hier li{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;padding:3px 0}
 .hier .lvl{flex:none;width:2ch;text-align:right;color:var(--text2)} .hier .cn{min-width:0;overflow-wrap:anywhere}
 .hier .meta{margin-left:auto;color:var(--text2);font-size:11px} .hier .b,.hier .id{flex:none}
 .title{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
@@ -116,7 +116,7 @@ pre{background:var(--bg);border:1px solid var(--border);border-radius:6px;paddin
    open row with a rounded brand bar outside the box on its left, short of
    the row's top and bottom. The rows round the corners themselves, as the
    box lets the bar out. */
-#public-cas a.ca{display:flex;flex:1;align-items:center;gap:8px;min-width:0;text-decoration:none;color:inherit} .id{color:var(--text2);font-size:12px} .rows{background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:16px} .rows:not(:has(>:not(.hidden))){display:none}
+#public-cas>a{text-decoration:none;color:inherit} .id{color:var(--text2);font-size:12px} .rows{background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:16px} .rows:not(:has(>:not(.hidden))){display:none}
 .item{position:relative} .head{border-radius:inherit}
 .row:not(:has(>:not(.hidden))){display:none}
 .rows>.item:not(.hidden):not(.item:not(.hidden)~.item){border-radius:7px 7px 0 0}
@@ -138,7 +138,9 @@ table.props td:first-child{color:var(--text2);width:150px;white-space:nowrap}
 .search input{flex:1 1 240px;min-width:0} .search button{flex-shrink:0}
 .empty{padding:10px 16px;color:var(--text2)} .empty.status:empty{display:none}
 .hidden{display:none!important}
-@media (max-width:700px){main,header{padding-left:12px;padding-right:12px} .head .meta{margin-left:0;flex-basis:100%}
+/* a finger needs room: controls at least 44px high */
+@media (pointer:coarse){button,a.button,select,input[type=text],input[type=password],input[type=number],.seg label{min-height:44px} a.button,.seg label{display:inline-flex;align-items:center}}
+@media (max-width:700px){main,header{padding-left:12px;padding-right:12px} table.props,table.props tbody,table.props tr,table.props td{display:block;width:auto} table.props td:first-child{white-space:normal;padding-bottom:0} .hier .cn{flex-basis:calc(100% - 2ch - 8px)} .head .meta{margin-left:0;flex-basis:100%}
   .seg{flex-direction:column} .seg label{border-left:none;border-top:1px solid var(--border);white-space:normal} .seg label:first-child{border-top:none}}
 </style></head><body>
 <header><a class="logo" href="/">{{logo}}</a><div><h1><a href="/">ТУЦ</a></h1><p>Тестовые удостоверяющие центры</p></div></header>
@@ -225,7 +227,7 @@ const certview = b64 => "https://certview.deem.ru/#cert=" + b64url(b64);
 const pem = b64 => "-----BEGIN CERTIFICATE-----\n" + b64.match(/.{1,64}/g).join("\n") + "\n-----END CERTIFICATE-----\n";
 const when = s => s ? s.replace("T", " ").replace(/Z$/, " UTC").replace(/^(\d+)-(\d+)-(\d+)/, "$1.$2.$3") : "";
 // A certificate shown on a page opens in CertView first: a link with its
-// logo, to the DER of b64 or, for data-crt, of the certificate at that URL
+// logo to the DER of b64
 const cvLogo = '<svg viewBox="2 1 12 14" aria-hidden="true"><path d="M8 1 L14 3 V8 Q14 12 8 15 Q2 12 2 8 V3 Z" fill="#012B6E"/><path d="M5 8 L7 10 L11 6" stroke="#fff" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
 function cvLink(a, b64) {
   if (!a.querySelector("svg")) a.insertAdjacentHTML("afterbegin", cvLogo);
@@ -258,16 +260,6 @@ function certItem(c, box, open, ...badges) {
   openable(item)(open);
   return {item, body, row, state, prop};
 }
-const derB64 = buf => { let s = ""; for (const b of new Uint8Array(buf)) s += String.fromCharCode(b); return btoa(s); };
-document.addEventListener("click", async e => {
-  const a = e.target.closest("a.cv[data-crt]");
-  if (!a) return;
-  e.preventDefault();
-  const w = open("", "_blank");
-  if (!w) return;
-  w.opener = null;
-  w.location.href = certview(derB64(await (await fetch(a.dataset.crt)).arrayBuffer()));
-});
 for (const a of $$("a.cv")) cvLink(a);
 </script>{{end}}
 
@@ -278,7 +270,7 @@ for (const a of $$("a.cv")) cvLink(a);
 <div class="row"><button class="primary" type="submit">Создать УЦ</button><span class="status" role="status"></span></div>
 </form></div></div>
 {{if .CAs}}<div class="rows" id="public-cas">{{range .CAs}}
-<div class="item head"><a class="ca" href="/{{.ID}}"><span class="name">{{if eq .Level 1}}Корневой УЦ{{else}}Подчинённый УЦ · уровень {{.Level}}{{end}}</span><span class="b blue">{{.Alg.Name}}</span><span class="b {{.State.Color}}">{{.State.Label}}</span><span class="id">{{slice .ID 0 8}}</span><span class="meta">до {{time .NotAfter}}</span></a><a class="button cv" data-crt="/{{.ID}}.crt" href="/{{.ID}}.crt">CertView</a></div>
+<a class="item head" href="/{{.ID}}"><span class="name">{{if eq .Level 1}}Корневой УЦ{{else}}Подчинённый УЦ · уровень {{.Level}}{{end}}</span><span class="b blue">{{.Alg.Name}}</span><span class="b {{.State.Color}}">{{.State.Label}}</span><span class="id">{{slice .ID 0 8}}</span><span class="meta">до {{time .NotAfter}}</span></a>
 {{end}}</div>{{else}}<p class="empty">Открытых УЦ пока нет</p>{{end}}
 </main>{{template "common"}}
 <script>openable($("#create-root")); caForm($("#root"), "/new", {});</script>
@@ -395,9 +387,9 @@ for (const a of $$("a.cv")) cvLink(a);
 <div class="item" id="hier-row"><div class="head"><span class="name">Иерархия УЦ</span><span class="meta">уровень {{len .Chain}} · подчинённых УЦ: {{len .Children}}</span></div>
 <div class="body"><div class="hier" id="hier">
 <h3>Путь от корневого УЦ</h3>
-<ol>{{range .Chain}}<li{{if .Current}} aria-current="page"{{end}}><span class="lvl">{{.Level}}</span><span class="cn">{{if .Current}}<b>{{.CN}}</b>{{else}}<a href="/{{.ID}}">{{.CN}}</a>{{end}}</span><span class="b blue">{{.Alg.Name}}</span><span class="b {{.State.Color}}" data-state>{{.State.Label}}</span><span class="id">{{slice .ID 0 8}}</span><span class="meta">до {{time .NotAfter}}</span><a class="button cv" data-crt="/{{.ID}}.crt" href="/{{.ID}}.crt">CertView</a></li>{{end}}</ol>
+<ol>{{range .Chain}}<li{{if .Current}} aria-current="page"{{end}}><span class="lvl">{{.Level}}</span><span class="cn">{{if .Current}}<b>{{.CN}}</b>{{else}}<a href="/{{.ID}}">{{.CN}}</a>{{end}}</span><span class="b blue">{{.Alg.Name}}</span><span class="b {{.State.Color}}" data-state>{{.State.Label}}</span><span class="id">{{slice .ID 0 8}}</span><span class="meta">до {{time .NotAfter}}</span></li>{{end}}</ol>
 {{with .Children}}<h3>Подчинённые УЦ</h3>
-<ol>{{range .}}<li><span class="lvl">{{.Level}}</span><span class="cn"><a class="child" href="/{{.ID}}">{{.CN}}</a></span><span class="b blue">{{.Alg.Name}}</span><span class="b {{.State.Color}}" data-state>{{.State.Label}}</span><span class="id">{{slice .ID 0 8}}</span><span class="meta">до {{time .NotAfter}}</span><a class="button cv" data-crt="/{{.ID}}.crt" href="/{{.ID}}.crt">CertView</a></li>{{end}}</ol>{{else}}<h3>{{if .CanChild}}Подчинённых УЦ нет{{else}}Последний уровень иерархии: подчинённые УЦ не создаются{{end}}</h3>{{end}}
+<ol>{{range .}}<li><span class="lvl">{{.Level}}</span><span class="cn"><a class="child" href="/{{.ID}}">{{.CN}}</a></span><span class="b blue">{{.Alg.Name}}</span><span class="b {{.State.Color}}" data-state>{{.State.Label}}</span><span class="id">{{slice .ID 0 8}}</span><span class="meta">до {{time .NotAfter}}</span></li>{{end}}</ol>{{else}}<h3>{{if .CanChild}}Подчинённых УЦ нет{{else}}Последний уровень иерархии: подчинённые УЦ не создаются{{end}}</h3>{{end}}
 </div></div></div>
 </div>
 
