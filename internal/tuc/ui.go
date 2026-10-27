@@ -87,7 +87,7 @@ a{color:var(--accent)}
 button,a.button{font:inherit;font-size:12px;border:1px solid var(--border);border-radius:6px;background:var(--surface);color:var(--text);padding:4px 12px;cursor:pointer;text-decoration:none;display:inline-block}
 button:hover,a.button:hover{border-color:var(--accent);background:var(--tint)}
 /* the link to CertView carries its logo, the certview shield */
-a.button.cv{display:inline-flex;align-items:center;gap:4px} .cv svg{width:10.5px;height:12.25px;flex:none}
+a.button.cv{display:inline-flex;align-items:center;gap:6px} .cv svg{width:10.286px;height:12px;flex:none}
 button.primary{background:var(--brand);border-color:var(--brand);color:#fff} button.primary:hover{background:var(--brand2);border-color:var(--brand2)}
 button.danger{border-color:var(--red);color:var(--red)} button.danger:hover{background:#ffebe9}
 button:disabled{opacity:.5;cursor:default}
