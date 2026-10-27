@@ -72,7 +72,7 @@ a{color:var(--accent)}
 .position .kind{overflow:hidden;text-overflow:ellipsis;min-width:0} .position>a{flex:none}
 .hier{max-height:18rem;overflow:auto} .body .rows{margin:0}
 .hier h3{font-size:12px;font-weight:400;color:var(--text2);margin:6px 0 2px}
-.hier ol{list-style:none} .hier li{display:flex;gap:8px;align-items:baseline;padding:3px 0} .hier .cv{padding:1px 8px;font-size:12px}
+.hier ol{list-style:none} .hier li{display:flex;flex-wrap:wrap;gap:4px 8px;align-items:baseline;padding:3px 0} .hier .cv{padding:1px 8px;font-size:12px}
 .hier .lvl{flex:none;width:2ch;text-align:right;color:var(--text2)} .hier .cn{min-width:0;overflow-wrap:anywhere}
 .hier .meta{margin-left:auto;color:var(--text2);font-size:11px} .hier .b,.hier .id{flex:none}
 .title{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
@@ -116,7 +116,7 @@ pre{background:var(--bg);border:1px solid var(--border);border-radius:6px;paddin
    open row with a rounded brand bar outside the box on its left, short of
    the row's top and bottom. The rows round the corners themselves, as the
    box lets the bar out. */
-#public-cas a.ca{display:flex;flex:1;align-items:center;gap:8px;min-width:0;text-decoration:none;color:inherit} .id{color:var(--text2);font-size:12px} .rows{background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:16px} .rows:not(:has(>:not(.hidden))){display:none}
+#public-cas a.ca{display:flex;flex-wrap:wrap;flex:1;align-items:center;gap:8px;min-width:0;text-decoration:none;color:inherit} .id{color:var(--text2);font-size:12px} .rows{background:var(--surface);border:1px solid var(--border);border-radius:8px;margin-bottom:16px} .rows:not(:has(>:not(.hidden))){display:none}
 .item{position:relative} .head{border-radius:inherit}
 .row:not(:has(>:not(.hidden))){display:none}
 .rows>.item:not(.hidden):not(.item:not(.hidden)~.item){border-radius:7px 7px 0 0}
@@ -138,7 +138,7 @@ table.props td:first-child{color:var(--text2);width:150px;white-space:nowrap}
 .search input{flex:1 1 240px;min-width:0} .search button{flex-shrink:0}
 .empty{padding:10px 16px;color:var(--text2)} .empty.status:empty{display:none}
 .hidden{display:none!important}
-@media (max-width:700px){main,header{padding-left:12px;padding-right:12px} .head .meta{margin-left:0;flex-basis:100%}
+@media (max-width:700px){main,header{padding-left:12px;padding-right:12px} .hier .cn{flex-basis:calc(100% - 2ch - 8px)} .head .meta{margin-left:0;flex-basis:100%}
   .seg{flex-direction:column} .seg label{border-left:none;border-top:1px solid var(--border);white-space:normal} .seg label:first-child{border-top:none}}
 </style></head><body>
 <header><a class="logo" href="/">{{logo}}</a><div><h1><a href="/">ТУЦ</a></h1><p>Тестовые удостоверяющие центры</p></div></header>

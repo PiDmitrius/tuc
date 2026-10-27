@@ -462,6 +462,17 @@ with sync_playwright() as p:
         creator.locator("#public-cas a.cv").first.click()
     popup.value.wait_for_url(re.compile(r"^https://certview\.deem\.ru/#cert="))
     popup.value.close()
+    # On a phone rows wrap: no name breaks into letters, nothing overflows
+    phone = browser.new_page(viewport={"width": 390, "height": 844})
+    one_line = "ns => ns.every(n => { const r = document.createRange(); r.selectNodeContents(n); return r.getClientRects().length === 1; })"
+    phone.goto(base + "/")
+    assert phone.locator("#public-cas .name").evaluate_all(one_line)
+    assert phone.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    phone.goto(base + creator.locator("#public-cas a.ca").first.get_attribute("href"))
+    phone.locator("#hier-row > .head").click()
+    assert phone.locator("#hier li").evaluate_all("ls => ls.every(l => Math.abs(l.querySelector('.lvl').getBoundingClientRect().top - l.querySelector('.cn').getBoundingClientRect().top) < 4)")
+    assert phone.evaluate("document.documentElement.scrollWidth <= innerWidth")
+    phone.close()
     first_url = creator.locator("#public-cas a.ca").first.get_attribute("href")
     creator.locator("#public-cas a.ca").first.click()
     creator.wait_for_url(base + first_url)
